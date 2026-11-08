@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { FilesetResolver, PoseLandmarker, type NormalizedLandmark } from '@mediapipe/tasks-vision';
 import { exercises, createRepCounter, jointVisible, staleMs } from './repCounter';
 import { createEnduranceTracker } from './enduranceTracker';
+import { createShadowLift } from './shadowLift';
 
 const wasm = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm';
 const model = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task';
@@ -28,6 +29,9 @@ export default function WorkoutCamera({ exercise, onReady, onProgress, onFeedbac
     const option = exercises[exercise];
     const sides = 'sides' in option ? option.sides : fullBody;
     const tracker = exercise === 'run' ? createEnduranceTracker() : createRepCounter(exercise);
+    const enhanceFrame = new URLSearchParams(window.location.search).get('shadowLift') === 'off'
+      ? undefined
+      : createShadowLift();
     let disposed = false;
     let stream: MediaStream | undefined;
     let landmarker: PoseLandmarker | undefined;
@@ -58,7 +62,8 @@ export default function WorkoutCamera({ exercise, onReady, onProgress, onFeedbac
         lastTime = time;
         lastVideoTime = video.currentTime;
         try {
-          const points = landmarker.detectForVideo(video, time).landmarks[0] ?? [];
+          const input = enhanceFrame?.(video, time) ?? video;
+          const points = landmarker.detectForVideo(input, time).landmarks[0] ?? [];
           const { videoWidth: width, videoHeight: height } = video;
           if (canvas.width !== width || canvas.height !== height) {
             canvas.width = width;

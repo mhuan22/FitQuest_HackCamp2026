@@ -44,7 +44,8 @@ export const exercises = {
 };
 
 const holdMs = 150;
-export const staleMs = 550;
+const dropoutGraceMs = 2000;
+export const staleMs = 2000;
 
 export function jointVisible(point) {
   return point && point.visibility >= 0.6 && (point.presence ?? 1) >= 0.6 &&
@@ -55,21 +56,33 @@ export function createRepCounter(exerciseId) {
   const exercise = exercises[exerciseId];
   let reps = 0;
   let phase, side, angle, slope, holdSince, lastFrame, movementStartedAt;
+  let interrupted;
 
   function loseTracking() {
     phase = 'start';
     side = null;
+    interrupted = false;
     angle = slope = holdSince = lastFrame = movementStartedAt = null;
   }
   loseTracking();
 
+  function missingFrame() {
+    if (lastFrame === null) loseTracking();
+    else {
+      interrupted = true;
+      // The next visible frame must begin a fresh hold using fresh measurements.
+      angle = slope = holdSince = null;
+    }
+    return { reps, phase: 'framing', angle: null };
+  }
+
   function update(points, width, height, time) {
-    if (lastFrame !== null && (time - lastFrame > staleMs || time < lastFrame)) {
+    if (lastFrame !== null && (time - lastFrame > dropoutGraceMs || time < lastFrame)) {
       loseTracking();
     }
 
     const visibleSides = exercise.sides.filter(indices => indices.every(index => jointVisible(points[index])));
-    if (side && !visibleSides.includes(side)) loseTracking();
+    if (side && !visibleSides.includes(side)) return missingFrame();
     side ??= visibleSides.sort((a, b) => confidence(b) - confidence(a))[0];
 
     function confidence(indices) {
@@ -77,8 +90,7 @@ export function createRepCounter(exerciseId) {
     }
 
     if (!side || !(width > 0 && height > 0)) {
-      loseTracking();
-      return { reps, phase: 'framing', angle: null };
+      return missingFrame();
     }
 
     const [first, middle, last] = side.map(index => points[index]);
@@ -88,8 +100,12 @@ export function createRepCounter(exerciseId) {
     const by = (last.y - middle.y) * height;
 
     if (Math.min(Math.hypot(ax, ay), Math.hypot(bx, by)) < Math.min(width, height) * 0.02) {
-      loseTracking();
-      return { reps, phase: 'framing', angle: null };
+      return missingFrame();
+    }
+
+    if (interrupted) {
+      if (movementStartedAt !== null) movementStartedAt += time - lastFrame;
+      interrupted = false;
     }
 
     const degrees = 180 / Math.PI;
