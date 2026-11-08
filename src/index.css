@@ -1511,11 +1511,17 @@
   background: linear-gradient(#1b2430, #29323c);
   border: 4px solid #101116;
 }
-.camera-view video {
+.camera-view video,
+.camera-view canvas {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   transform: scaleX(-1);
+}
+.camera-view canvas {
+  pointer-events: none;
 }
 .camera-guide {
   position: absolute;

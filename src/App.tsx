@@ -1,5 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import AuthScreen from "./AuthScreen";
+import { levelFromXp, levelProgress, loadSave, STAT_INFO, type SaveData } from "./game/progression";
+import { RUN_BLOCK_SECONDS, STATIONS, XP_PER_UNIT, type CharacterAction, type StationKey } from "./training/stations";
+import WorkoutCamera from "./vision/WorkoutCamera";
+import { exercises } from "./vision/repCounter";
 import golemIdleA from "./assets/bosses/golem/idle-a.png";
 import golemIdleB from "./assets/bosses/golem/idle-b.png";
 import owlIdleA from "./assets/bosses/owl/idle-a.png";
@@ -33,74 +37,6 @@ import modelBack6B from "./assets/characters/idle/back/model-06-b.png";
 
 type Scene = "base" | "gym" | "battle";
 type BossKey = "slime" | "golem" | "owl" | "shellback";
-type StatKey = "strength" | "agility" | "defense" | "health";
-type XpKey = "strengthXp" | "agilityXp" | "defenseXp" | "healthXp";
-type StationKey = "curls" | "squats" | "situps" | "treadmill";
-type CharacterAction = "idle" | "walk" | "curl" | "squat" | "situp" | "attack" | "guard" | "hit";
-type Station = {
-  stat: StatKey;
-  name: string;
-  exercise: string;
-  description: string;
-  action: CharacterAction;
-  position: { x: number; y: number };
-};
-
-type SaveData = {
-  strengthXp: number;
-  agilityXp: number;
-  defenseXp: number;
-  healthXp: number;
-  skin: number;
-  sound: boolean;
-  rewards: string[];
-};
-
-const STATIONS: Record<StationKey, Station> = {
-  curls: {
-    stat: "strength",
-    name: "Dumbbell Rack",
-    exercise: "Biceps Curls",
-    description: "Curl with control. Keep your elbows close and finish every rep.",
-    action: "curl",
-    position: { x: 19, y: 57 },
-  },
-  squats: {
-    stat: "agility",
-    name: "Squat Mat",
-    exercise: "Bodyweight Squats",
-    description: "Lower to depth, keep your chest tall, then stand with purpose.",
-    action: "squat",
-    position: { x: 82, y: 55 },
-  },
-  situps: {
-    stat: "defense",
-    name: "Sit-up Bench",
-    exercise: "Core Sit-ups",
-    description: "Brace your core, lower with control, and rise until your torso is upright.",
-    action: "situp",
-    position: { x: 28, y: 79 },
-  },
-  treadmill: {
-    stat: "health",
-    name: "Treadmill",
-    exercise: "Treadmill Run",
-    description: "Keep a steady rhythm, land softly, and maintain your pace through every rep.",
-    action: "walk",
-    position: { x: 72, y: 79 },
-  },
-};
-
-const DEFAULT_SAVE: SaveData = {
-  strengthXp: 0,
-  agilityXp: 0,
-  defenseXp: 0,
-  healthXp: 0,
-  skin: 0,
-  sound: true,
-  rewards: [],
-};
-
 const BOSSES = {
   slime: {
     name: "TRAINING SLIME",
@@ -127,13 +63,6 @@ const BOSSES = {
     intro: "The Ancient Shellback rises from the mire for the final trial!",
   },
 } satisfies Record<BossKey, { name: string; hp: number; attack: number; intro: string }>;
-
-const STAT_INFO: Record<StatKey, { label: string; short: string; xpKey: XpKey }> = {
-  strength: { label: "Strength", short: "STR", xpKey: "strengthXp" },
-  agility: { label: "Agility", short: "AGI", xpKey: "agilityXp" },
-  defense: { label: "Defense", short: "DEF", xpKey: "defenseXp" },
-  health: { label: "Vitality", short: "VIT", xpKey: "healthXp" },
-};
 
 // Each character model has two idle and two walking frames per direction.
 const CHARACTER_MODELS = [
@@ -484,19 +413,6 @@ function SlimeAttackSprite({ pattern }: { pattern: number }) {
   );
 }
 
-const levelFromXp = (xp: number) => Math.floor(xp / 100) + 1;
-const levelProgress = (xp: number) => xp % 100;
-
-function loadSave(): SaveData {
-  try {
-    const parsed = JSON.parse(localStorage.getItem("ironvale-save") || "");
-    const save = { ...DEFAULT_SAVE, ...parsed };
-    return { ...save, skin: Math.abs(Number(save.skin) || 0) % CHARACTER_MODELS.length };
-  } catch {
-    return DEFAULT_SAVE;
-  }
-}
-
 function PixelIcon({ type }: { type: "sound" | "settings" | "pause" | "camera" }) {
   if (type === "sound") {
     return (
@@ -598,25 +514,26 @@ function Frame({
 
 export default function App() {
   const [enteredGame, setEnteredGame] = useState(false);
-  const [save, setSave] = useState<SaveData>(loadSave);
+  const [save, setSave] = useState<SaveData>(() => loadSave(CHARACTER_MODELS.length));
   const [scene, setScene] = useState<Scene>("base");
   const [modal, setModal] = useState<"station" | "boss" | "wardrobe" | "stats" | null>(null);
   const [selected, setSelected] = useState<StationKey>("curls");
-  const [target, setTarget] = useState(5);
+  const [repTarget, setRepTarget] = useState(5);
+  const [runTarget, setRunTarget] = useState(RUN_BLOCK_SECONDS);
   const [playerPos, setPlayerPos] = useState({ x: 50, y: 64 });
   const [moving, setMoving] = useState(false);
   const [worldFacing, setWorldFacing] = useState<"left" | "right" | "back">("left");
   const [hint, setHint] = useState("Choose a destination to begin your training.");
   const [transition, setTransition] = useState(false);
   const [exercise, setExercise] = useState(false);
-  const [reps, setReps] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const sessionProgress = useRef(0);
   const [feedback, setFeedback] = useState("Complete the movement.");
   const [paused, setPaused] = useState(false);
   const [reward, setReward] = useState<{ xp: number; leveled: boolean } | null>(null);
-  const [cameraState, setCameraState] = useState<
-    "idle" | "requesting" | "active" | "denied" | "unavailable"
-  >("idle");
-  const [demoMode, setDemoMode] = useState(true);
+  const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraError, setCameraError] = useState("");
   const [battle, setBattle] = useState({
     boss: "slime" as BossKey,
     playerHp: 100,
@@ -632,8 +549,6 @@ export default function App() {
     guarding: false,
     result: null as "victory" | "defeat" | null,
   });
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
 
   const strength = levelFromXp(save.strengthXp);
   const agility = levelFromXp(save.agilityXp);
@@ -641,6 +556,12 @@ export default function App() {
   const vitality = levelFromXp(save.healthXp);
   const maxHealth = 100 + (vitality - 1) * 15;
   const activeStation = STATIONS[selected];
+  const timed = activeStation.tracking === "run";
+  const target = timed ? runTarget : repTarget;
+  const setTarget = timed ? setRunTarget : setRepTarget;
+  const goal = timed ? target * 1000 : target;
+  const shownProgress = timed ? Math.floor(progress / 1000) : progress;
+  const rewardUnits = timed ? Math.floor(shownProgress / RUN_BLOCK_SECONDS) : progress;
   const selectedStat = activeStation.stat;
   const activeStatInfo = STAT_INFO[selectedStat];
   const activeXp = save[activeStatInfo.xpKey];
@@ -663,10 +584,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("ironvale-save", JSON.stringify(save));
   }, [save]);
-
-  useEffect(() => {
-    return () => streamRef.current?.getTracks().forEach((track) => track.stop());
-  }, []);
 
   function changeScene(next: Scene) {
     setTransition(true);
@@ -705,7 +622,11 @@ export default function App() {
       () => {
         setSelected(station);
         setModal("station");
-        setHint(`${STATIONS[station].exercise}: +10 XP per rep.`);
+        setHint(
+          station === "treadmill"
+            ? `Treadmill Run: +${XP_PER_UNIT} XP per ${RUN_BLOCK_SECONDS} active seconds.`
+            : `${STATIONS[station].exercise}: +${XP_PER_UNIT} XP per rep.`,
+        );
       },
       `Walking to the ${STATIONS[station].name}...`,
     );
@@ -713,55 +634,42 @@ export default function App() {
 
   function startExercise() {
     setModal(null);
-    setReps(0);
-    setFeedback("Adjust camera, then complete the movement.");
+    sessionProgress.current = 0;
+    setProgress(0);
+    setFeedback(exercises[activeStation.tracking].frame);
     setPaused(false);
     setReward(null);
+    setCameraError("");
     setExercise(true);
   }
 
-  function countRep() {
-    if (paused || reward || reps >= target) return;
-    const next = reps + 1;
-    setReps(next);
-    setFeedback("Rep counted!");
-    setTimeout(() => setFeedback("Complete the movement."), 700);
-    if (next >= target) {
+  const addProgress = useCallback((amount: number) => {
+    if (sessionProgress.current >= goal) return;
+    const next = Math.min(goal, sessionProgress.current + amount);
+    sessionProgress.current = next;
+    setProgress(timed ? Math.floor(next / 1000) * 1000 : next);
+    if (next === goal) {
       const key = activeStatInfo.xpKey;
-      const before = save[key];
-      const gained = target * 10;
-      setTimeout(() => {
-        setSave((current) => ({ ...current, [key]: current[key] + gained }));
-        setReward({ xp: gained, leveled: levelFromXp(before + gained) > levelFromXp(before) });
-      }, 600);
+      const gained = (timed ? target / RUN_BLOCK_SECONDS : target) * XP_PER_UNIT;
+      setSave((current) => ({ ...current, [key]: current[key] + gained }));
+      setReward({ xp: gained, leveled: levelFromXp(activeXp + gained) > levelFromXp(activeXp) });
     }
-  }
+  }, [goal, timed, activeStatInfo.xpKey, target, activeXp]);
 
-  async function enableCamera() {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setCameraState("unavailable");
-      return;
-    }
-    setCameraState("requesting");
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      streamRef.current = stream;
-      if (videoRef.current) videoRef.current.srcObject = stream;
-      setCameraState("active");
-      setDemoMode(false);
-    } catch {
-      setCameraState("denied");
-      setDemoMode(true);
-    }
-  }
+  const onCameraReady = useCallback(() => setCameraReady(true), []);
+  const onCameraError = useCallback((message: string) => {
+    setCameraEnabled(false);
+    setCameraReady(false);
+    setCameraError(message);
+    setFeedback(message);
+  }, []);
 
   function finishExercise() {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    setCameraState("idle");
+    setCameraEnabled(false);
+    setCameraReady(false);
     setExercise(false);
     setReward(null);
-    setHint("Training complete. Your progress has been saved.");
+    setHint(reward ? "Training complete. Your progress has been saved." : "Training ended.");
   }
 
   function beginBattle(boss: BossKey = "slime") {
@@ -1165,15 +1073,15 @@ export default function App() {
                 />
               </div>
             </div>
-            <label className="target-label">REP TARGET</label>
+            <div className="target-label">{timed ? "ACTIVE-TIME TARGET" : "REP TARGET"}</div>
             <div className="rep-selector">
-              {[5, 10, 15].map((value) => (
+              {(timed ? [1, 2, 3].map((blocks) => blocks * RUN_BLOCK_SECONDS) : [5, 10, 15]).map((value) => (
                 <button
                   key={value}
                   className={target === value ? "selected" : ""}
                   onClick={() => setTarget(value)}
                 >
-                  {value}
+                  {value}{timed ? "s" : ""}
                 </button>
               ))}
             </div>
@@ -1438,46 +1346,45 @@ export default function App() {
           </div>
           <div className="training-layout">
             <Frame className="camera-panel">
-              <div className={`camera-view state-${cameraState}`}>
-                <video ref={videoRef} autoPlay playsInline muted />
-                <div className="camera-guide">
+              <div className="camera-view">
+                {cameraEnabled && !paused && !reward && (
+                  <WorkoutCamera
+                    exercise={activeStation.tracking}
+                    onReady={onCameraReady}
+                    onError={onCameraError}
+                    onProgress={addProgress}
+                    onFeedback={setFeedback}
+                  />
+                )}
+                <div className="camera-guide" aria-hidden="true">
                   <i />
                   <i />
                   <i />
                   <i />
                 </div>
-                {cameraState !== "active" && (
+                {(!cameraReady || paused || reward) && (
                   <div className="camera-message">
                     <PixelIcon type="camera" />
                     <strong>
-                      {cameraState === "denied"
-                        ? "CAMERA PERMISSION DENIED"
-                        : cameraState === "unavailable"
-                          ? "CAMERA UNAVAILABLE"
-                          : cameraState === "requesting"
-                            ? "REQUESTING CAMERA..."
-                            : "POSITION YOUR FULL BODY IN FRAME"}
+                      {reward ? "TRAINING COMPLETE" : paused ? "CAMERA PAUSED" :
+                        cameraEnabled ? "STARTING POSE TRACKING..." : "CAMERA OFF"}
                     </strong>
-                    <span>
-                      {cameraState === "denied"
-                        ? "You can continue safely in Demo Mode."
-                        : "Keep the camera steady with good lighting."}
-                    </span>
-                    {cameraState !== "requesting" && cameraState !== "unavailable" && (
-                      <button className="pixel-button" onClick={enableCamera}>
-                        {cameraState === "denied" ? "TRY AGAIN" : "ENABLE CAMERA"}
+                    <span>{cameraError || exercises[activeStation.tracking].frame}</span>
+                    {!cameraEnabled && !paused && !reward && (
+                      <button className="pixel-button" onClick={() => {
+                        setCameraError("");
+                        setFeedback(exercises[activeStation.tracking].frame);
+                        setCameraEnabled(true);
+                      }}>
+                        {cameraError ? "TRY AGAIN" : "ENABLE CAMERA"}
                       </button>
                     )}
                   </div>
                 )}
               </div>
               <div className="camera-footer">
-                <span className={`status-dot ${cameraState}`} />{" "}
-                {cameraState === "active"
-                  ? "CAMERA ACTIVE"
-                  : demoMode
-                    ? "DEMO MODE ACTIVE"
-                    : "CAMERA OFF"}
+                <span className={`status-dot ${cameraReady && !reward ? "active" : ""}`} />
+                {cameraReady && !reward ? "POSE TRACKING ACTIVE" : "POSE TRACKING OFF"}
               </div>
             </Frame>
             <div className="training-side">
@@ -1488,37 +1395,41 @@ export default function App() {
                 </div>
               </Frame>
               <Frame className="rep-panel">
-                <span>REPS</span>
+                <span>{timed ? "ACTIVE SECONDS" : "REPS"}</span>
                 <div className="rep-count">
-                  {reps}
+                  {shownProgress}
                   <small>/ {target}</small>
                 </div>
                 <div className={`feedback ${feedback === "Rep counted!" ? "success" : ""}`}>
                   {paused ? "Training paused." : feedback}
                 </div>
                 <div className="session-progress">
-                  <i style={{ width: `${(reps / target) * 100}%` }} />
+                  <i style={{ width: `${(progress / goal) * 100}%` }} />
                 </div>
                 <div className="xp-preview">
-                  +{reps * 10} {activeStatInfo.label} XP
+                  +{rewardUnits * XP_PER_UNIT} {activeStatInfo.label} XP
                 </div>
               </Frame>
             </div>
           </div>
           <div className="training-controls">
-            <div className="demo-controls">
-              <span>DEMO MODE</span>
-              <button
-                className="pixel-button primary"
-                disabled={paused || !!reward}
-                onClick={countRep}
-              >
-                SIMULATE REP
-              </button>
-              <small>Use this control when camera tracking is unavailable.</small>
-            </div>
+            {import.meta.env.DEV && (
+              <div className="demo-controls">
+                <span>DEMO MODE</span>
+                <button
+                  className="pixel-button primary"
+                  disabled={cameraEnabled || paused || !!reward}
+                  onClick={() => addProgress(timed ? RUN_BLOCK_SECONDS * 1000 : 1)}
+                >
+                  {timed ? "SIMULATE 30 SECONDS" : "SIMULATE REP"}
+                </button>
+              </div>
+            )}
             <div className="session-buttons">
-              <button className="pixel-button" onClick={() => setPaused((value) => !value)}>
+              <button className="pixel-button" onClick={() => {
+                setCameraReady(false);
+                setPaused((value) => !value);
+              }}>
                 <PixelIcon type="pause" /> {paused ? "RESUME" : "PAUSE"}
               </button>
               <button className="pixel-button danger" onClick={finishExercise}>

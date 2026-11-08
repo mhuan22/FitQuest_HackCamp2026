@@ -1,45 +1,59 @@
 import { useEffect, useRef } from 'react';
-import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
-import { exercises, jointVisible } from './repCounter';
+import { FilesetResolver, PoseLandmarker, type NormalizedLandmark } from '@mediapipe/tasks-vision';
+import { exercises, createRepCounter, jointVisible, staleMs } from './repCounter';
+import { createEnduranceTracker } from './enduranceTracker';
 
 const wasm = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm';
 const model = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task';
 const fullBody = PoseLandmarker.POSE_CONNECTIONS.map(({ start, end }) => [start, end]);
-const layer = { position: 'absolute', width: '100%', height: '100%', inset: 0, objectFit: 'contain', transform: 'scaleX(-1)' };
+export type ExerciseId = keyof typeof exercises;
 
-export function useCameraAccess() {
-  return { request: async () => true };
-}
+type Props = {
+  exercise: ExerciseId;
+  onReady: () => void;
+  onProgress: (amount: number) => void;
+  onFeedback: (message: string) => void;
+  onError: (message: string) => void;
+};
 
-export default function PoseCamera({ exercise, onFrame, onError }) {
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
+export default function WorkoutCamera({ exercise, onReady, onProgress, onFeedback, onError }: Props) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
+    if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    const option = exercises[exercise];
+    const sides = 'sides' in option ? option.sides : fullBody;
+    const tracker = exercise === 'run' ? createEnduranceTracker() : createRepCounter(exercise);
     let disposed = false;
-    let stream, landmarker, animation;
+    let stream: MediaStream | undefined;
+    let landmarker: PoseLandmarker | undefined;
+    let animation = 0;
+    let staleTimer: ReturnType<typeof setTimeout> | undefined;
     let lastTime = -Infinity;
     let lastVideoTime = -1;
+    let durationMs = 0;
 
     function stop() {
       disposed = true;
       cancelAnimationFrame(animation);
+      clearTimeout(staleTimer);
       stream?.getTracks().forEach(track => track.stop());
       video.srcObject = null;
       landmarker?.close();
     }
 
-    function fail(message) {
+    function fail(message: string) {
       if (disposed) return;
       stop();
       onError(message);
     }
 
-    function detect(time) {
-      if (disposed) return;
+    function detect(time: number) {
+      if (disposed || !landmarker) return;
       if (video.readyState >= 2 && time - lastTime >= 65 && video.currentTime !== lastVideoTime) {
         lastTime = time;
         lastVideoTime = video.currentTime;
@@ -50,8 +64,23 @@ export default function PoseCamera({ exercise, onFrame, onError }) {
             canvas.width = width;
             canvas.height = height;
           }
-          drawPose(ctx, points, width, height, exercises[exercise].sides ?? fullBody);
-          onFrame(points, width, height, time);
+          drawPose(ctx, points, width, height, sides);
+          const result = tracker.update(points, width, height, time);
+          const phase = result.phase;
+          const message = phase === 'framing' ? option.frame : (option as Record<string, unknown>)[phase];
+          onFeedback('counted' in result && result.counted ? 'Rep counted!' : String(message ?? option.frame));
+          if ('durationMs' in result && result.durationMs > durationMs) {
+            onProgress(result.durationMs - durationMs);
+            durationMs = result.durationMs;
+          } else if ('counted' in result && result.counted) {
+            onProgress(1);
+          }
+          clearTimeout(staleTimer);
+          staleTimer = setTimeout(() => {
+            tracker.loseTracking();
+            ctx?.clearRect(0, 0, canvas.width, canvas.height);
+            onFeedback(option.frame);
+          }, staleMs);
         } catch {
           fail('Pose tracking stopped. Try starting the camera again.');
           return;
@@ -80,7 +109,7 @@ export default function PoseCamera({ exercise, onFrame, onError }) {
         video.srcObject = stream;
         await video.play();
       } catch (error) {
-        fail(error.name === 'NotAllowedError'
+        fail(error instanceof DOMException && error.name === 'NotAllowedError'
           ? 'Camera permission was denied. Allow it in your browser and try again.'
           : 'Could not open the camera. Check that it is connected and available.');
         return;
@@ -99,6 +128,7 @@ export default function PoseCamera({ exercise, onFrame, onError }) {
           landmarker.close();
           return;
         }
+        onReady();
         animation = requestAnimationFrame(detect);
       } catch {
         fail('The pose model could not load. Check your internet connection and try again.');
@@ -109,17 +139,23 @@ export default function PoseCamera({ exercise, onFrame, onError }) {
     return () => {
       if (!disposed) stop();
     };
-  }, [exercise, onFrame, onError]);
+  }, [exercise, onReady, onProgress, onFeedback, onError]);
 
   return (
     <>
-      <video ref={videoRef} muted playsInline style={layer} />
-      <canvas ref={canvasRef} aria-hidden="true" style={{ ...layer, pointerEvents: 'none' }} />
+      <video ref={videoRef} muted playsInline />
+      <canvas ref={canvasRef} aria-hidden="true" />
     </>
   );
 }
 
-function drawPose(ctx, points, width, height, sides) {
+function drawPose(
+  ctx: CanvasRenderingContext2D | null,
+  points: NormalizedLandmark[],
+  width: number,
+  height: number,
+  sides: number[][],
+) {
   if (!ctx) return;
   ctx.clearRect(0, 0, width, height);
   ctx.lineWidth = 4;
