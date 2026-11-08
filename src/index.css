@@ -1,6 +1,16 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=Press+Start+2P&display=swap");
 @import "tailwindcss";
 
+.auth-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.auth-fields .auth-field + .auth-field { margin-top: 16px; }
+.account-screen { height: 100dvh; display: grid; place-items: center; padding: 24px; overflow: auto; }
+.account-panel { --pixel: "Press Start 2P", monospace; width: min(100%, 520px); padding: 28px; background: #171d24; color: #fff5d6; }
+.account-panel h1, .account-panel h2 { font-size: 20px; margin-bottom: 20px; }
+.account-panel p { margin: 16px 0; line-height: 1.6; }
+.player-card strong { display: block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.save-error-overlay { position: fixed; inset: 0; z-index: 110; display: grid; place-items: center; padding: 24px; background: #000b; }
+.account-notice { position: fixed; top: 0; left: 0; right: 0; z-index: 120; padding: 12px; background: #552c2c; text-align: center; }
+
 @layer base {
   :root {
     font-family: "DM Sans", sans-serif;
@@ -36,8 +46,8 @@
   --pixel: "Press Start 2P", monospace;
   position: relative;
   width: 100vw;
-  height: 100vh;
-  min-height: 600px;
+  height: 100dvh;
+  min-height: min(600px, 100dvh);
   overflow: hidden;
   background: #161922;
   transition:
@@ -241,6 +251,16 @@
 .top-controls button:not(.active):first-child {
   color: #aa9b7f;
   filter: saturate(0.65);
+}
+.top-controls .logout-button {
+  width: auto;
+  padding: 0 16px;
+  font: 600 13px "DM Sans", sans-serif;
+  white-space: nowrap;
+}
+.top-controls .logout-button:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 .pixel-svg {
   width: 26px;
@@ -1496,7 +1516,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1.65fr) minmax(280px, 0.65fr);
   gap: 18px;
-  height: calc(100vh - 210px);
+  height: calc(100dvh - 210px);
   min-height: 410px;
 }
 .camera-panel {

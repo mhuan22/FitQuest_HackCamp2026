@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import AuthScreen from "./AuthScreen";
-import { levelFromXp, levelProgress, loadSave, STAT_INFO, type SaveData } from "./game/progression";
+import { levelFromXp, levelProgress, STAT_INFO, type SaveData } from "./game/progression";
+import { useProgress } from "./game/useProgress";
 import { RUN_BLOCK_SECONDS, STATIONS, XP_PER_UNIT, type CharacterAction, type StationKey } from "./training/stations";
 import WorkoutCamera from "./vision/WorkoutCamera";
 import { exercises } from "./vision/repCounter";
@@ -512,9 +512,19 @@ function Frame({
   );
 }
 
-export default function App() {
-  const [enteredGame, setEnteredGame] = useState(false);
-  const [save, setSave] = useState<SaveData>(() => loadSave(CHARACTER_MODELS.length));
+type GameProps = {
+  userId?: string;
+  username?: string;
+  initialSave?: SaveData;
+  initialRevision?: number;
+  onLogout: () => Promise<void>;
+  onReload: () => void;
+  accountError?: string;
+};
+
+export default function App({ userId, username, initialSave, initialRevision = 0, onLogout, onReload, accountError }: GameProps) {
+  const { save, setSave, status: saveStatus, error: saveError, blocked: saveBlocked, retry } = useProgress(userId, initialSave, initialRevision, CHARACTER_MODELS.length);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [scene, setScene] = useState<Scene>("base");
   const [modal, setModal] = useState<"station" | "boss" | "wardrobe" | "stats" | null>(null);
   const [selected, setSelected] = useState<StationKey>("curls");
@@ -580,10 +590,6 @@ export default function App() {
   const golemAttackPattern = (battle.bossAttackCount + 2) % 3;
   const owlAttackPattern = (battle.bossAttackCount + 1) % 2;
   const shellbackAttackPattern = (battle.bossAttackCount + 2) % 3;
-
-  useEffect(() => {
-    localStorage.setItem("ironvale-save", JSON.stringify(save));
-  }, [save]);
 
   function changeScene(next: Scene) {
     setTransition(true);
@@ -669,7 +675,7 @@ export default function App() {
     setCameraReady(false);
     setExercise(false);
     setReward(null);
-    setHint(reward ? "Training complete. Your progress has been saved." : "Training ended.");
+    setHint(reward ? "Training complete." : "Training ended.");
   }
 
   function beginBattle(boss: BossKey = "slime") {
@@ -876,10 +882,15 @@ export default function App() {
 
   const hud = scene !== "battle" && !exercise;
 
-  if (!enteredGame) return <AuthScreen onGuest={() => setEnteredGame(true)} />;
-
   return (
-    <main className={`game-shell scene-${scene} ${transition ? "is-transitioning" : ""}`}>
+    <>
+    {accountError && <p className="account-notice" role="alert">{accountError}</p>}
+    {saveBlocked && <div className="save-error-overlay"><section className="pixel-frame account-panel" role="alert">
+      <h2>{saveStatus === "conflict" ? "Cloud save changed" : "Progress not saved"}</h2>
+      <p>{saveError}</p>
+      {saveStatus === "conflict" ? <><p>Reloading discards unsaved changes on this device and loads the newer cloud save.</p><button className="pixel-button" onClick={onReload}>RELOAD CLOUD SAVE</button></> : <button className="pixel-button" disabled={saveStatus === "saving"} onClick={retry}>{saveStatus === "saving" ? "RETRYING…" : "RETRY SAVE"}</button>}
+    </section></div>}
+    <main inert={saveBlocked || loggingOut || undefined} className={`game-shell scene-${scene} ${transition ? "is-transitioning" : ""}`}>
       {hud && (
         <>
           <div className="player-card">
@@ -888,7 +899,7 @@ export default function App() {
             </div>
             <div>
               <span>ADVENTURER</span>
-              <strong>ROOK</strong>
+              <strong>{username || "ROOK"}</strong>
             </div>
           </div>
           <div className="top-controls">
@@ -900,10 +911,21 @@ export default function App() {
               <PixelIcon type="sound" />
             </button>
             <button
-              onClick={() => setHint("Settings: progress saves automatically on this device.")}
+              onClick={() => setHint(userId ? "Progress saves automatically to your account." : "Guest progress saves automatically on this browser.")}
               aria-label="Settings"
             >
               <PixelIcon type="settings" />
+            </button>
+            <button
+              className="logout-button"
+              disabled={loggingOut || saveStatus !== "saved"}
+              aria-busy={loggingOut}
+              onClick={async () => {
+                setLoggingOut(true);
+                try { await onLogout(); } finally { setLoggingOut(false); }
+              }}
+            >
+              Log out
             </button>
           </div>
           <div className="stats-hud">
@@ -1347,7 +1369,7 @@ export default function App() {
           <div className="training-layout">
             <Frame className="camera-panel">
               <div className="camera-view">
-                {cameraEnabled && !paused && !reward && (
+                {cameraEnabled && !paused && !reward && !saveBlocked && !loggingOut && (
                   <WorkoutCamera
                     exercise={activeStation.tracking}
                     onReady={onCameraReady}
@@ -1648,5 +1670,6 @@ export default function App() {
         </section>
       )}
     </main>
+    </>
   );
 }
