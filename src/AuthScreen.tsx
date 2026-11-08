@@ -77,11 +77,11 @@ export default function AuthScreen({ onGuest }: { onGuest: () => void }) {
           <p className="auth-subtitle">{reset ? "Enter the email you used to create your account." : signup ? "Create an account to save your adventure across devices." : "Log in with your adventurer username."}</p>
           <form key={mode} id={`fitquest-${mode}`} onSubmit={submit}>
             <fieldset disabled={pending} className="auth-fields">
+              {(signup || reset) && <label className="auth-field">EMAIL<input id={`fitquest-${mode}-email`} name="email" type="email" autoComplete="email" placeholder="you@example.com" required maxLength={254} /><small>Used for account verification and password recovery.</small></label>}
               {!reset && <label className="auth-field">USERNAME<input id={`fitquest-${mode}-username`} name="username" type="text" autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="Your adventurer name" required minLength={3} maxLength={24} pattern="[A-Za-z0-9_]+" title="Use 3–24 letters, numbers, or underscores" /></label>}
               {!reset && <label className="auth-field">PASSWORD
                 <div className="auth-password"><input id={`fitquest-${mode}-password`} name="password" type={showPassword ? "text" : "password"} autoComplete={signup ? "new-password" : "current-password"} placeholder={signup ? "At least 8 characters" : "Enter your password"} required minLength={signup ? 8 : 1} maxLength={1024} /><button type="button" aria-label={showPassword ? "Hide password" : "Show password"} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>{showPassword ? "HIDE" : "SHOW"}</button></div>
               </label>}
-              {(signup || reset) && <label className="auth-field">EMAIL<input id={`fitquest-${mode}-email`} name="email" type="email" autoComplete="email" placeholder="you@example.com" required maxLength={254} /><small>Used for account verification and password recovery.</small></label>}
               <button className="pixel-button primary auth-submit" type="submit">{pending ? "PLEASE WAIT…" : reset ? "SEND RESET LINK" : signup ? "CREATE ACCOUNT" : "LOG IN"}</button>
             </fieldset>
           </form>
