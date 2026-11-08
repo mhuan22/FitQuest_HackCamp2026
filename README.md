@@ -74,3 +74,38 @@ The **Log out** button appears with the controls at the top right of the base an
 Run `npm run check` for TypeScript, account and game integration tests, progression/animation/workout-tracking tests, disposable PostgreSQL migration checks, and the production build. The database tests do not connect to hosted Supabase.
 
 See [user progress saves](docs/SAVE_PROGRESS.md) for persistence behavior and [verification results](docs/VERIFICATION.md) for the latest review and manual checks.
+
+## Guild Training Report
+
+Open **Guild** from the game HUD. This week's challenge is 500 shared XP, with a reset each Monday at 00:00 UTC. The report shows the guild's total, your contribution, and your top exercise by XP. All signed-in players contribute to the same guild.
+
+**Try the demo locally.** Open **Explore as a guest** on the local development server, start a workout in the gym, and use **Simulate Rep** or **Simulate 30 Seconds**. Complete the workout, select **Continue**, then open **Guild**. Demo contributions are stored in this browser and cleared by **Reset Demo**. Signed-in players can also open the separate demo via **Open Demo Controls**.
+
+### Connect the live report
+
+1. Set up accounts as above and apply all pending migrations, including `202611080004_workout_sessions.sql`. In the Supabase SQL Editor, create a dedicated Postgres login and give it access to the report view. Replace the placeholder with a generated password and keep it in the Databricks connection only.
+
+   ```sql
+   create role fitquest_reporting_reader login password '<generated-password>';
+   grant connect on database postgres to fitquest_reporting_reader;
+   grant usage on schema fitquest_reporting to fitquest_reporting_reader;
+   grant select on fitquest_reporting.workout_xp to fitquest_reporting_reader;
+   ```
+
+2. In a Unity Catalog-enabled Databricks workspace, create a [PostgreSQL connection and foreign catalog](https://docs.databricks.com/aws/en/query-federation/postgresql) named `fitquest` for the Supabase `postgres` database. Use a Supabase endpoint reachable by your Databricks warehouse. For the IPv4 session pooler, use the hostname from Supabase **Connect**, port 5432, and the username `fitquest_reporting_reader.<project-ref>`. Configure TLS certificate verification and use a Pro or Serverless warehouse with Lakehouse Federation access. See [Supabase connection options](https://supabase.com/docs/guides/database/connecting-to-postgres).
+
+3. Create a Databricks [service principal and OAuth secret](https://docs.databricks.com/aws/en/dev-tools/auth/oauth-m2m). Give the principal **CAN USE** on the warehouse and grant it **USE CATALOG** on `fitquest`, **USE SCHEMA** on `fitquest.fitquest_reporting`, and **SELECT** on `fitquest.fitquest_reporting.workout_xp`. Verify the connection by querying the view from the Databricks SQL editor.
+
+4. Add these values in the Supabase dashboard under **Edge Functions → Secrets**. Keep them on the server.
+
+   | Secret | Value |
+   | --- | --- |
+   | `DATABRICKS_HOST` | HTTPS URL of your Databricks workspace |
+   | `DATABRICKS_CLIENT_ID` | Databricks service principal application ID |
+   | `DATABRICKS_CLIENT_SECRET` | Databricks OAuth secret |
+   | `DATABRICKS_WAREHOUSE_ID` | SQL warehouse ID |
+   | `DATABRICKS_WORKOUT_CATALOG` | `fitquest` or your foreign catalog name |
+
+5. Deploy with `npx supabase functions deploy guild-training-report --project-ref YOUR_PROJECT_REF --no-verify-jwt`. The function verifies the signed-in user with Supabase Auth before querying Databricks. Complete a signed-in workout, open **Guild**, and check that both your contribution and the guild total increase. **Refresh** retries pending uploads and reloads the report.
+
+Workout summaries are captured going forward. Camera frames stay in the browser. The reporting view shares only the account ID, station, XP, and server-recorded completion time with Databricks. Offline workouts count in the week when they reach Supabase. An ended fixed-target workout contributes only if it reached its target, and a Free Run contributes if it earned XP. Guild XP uses the same client-reported exercise tracking as game XP.

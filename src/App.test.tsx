@@ -100,6 +100,25 @@ describe("game integration", () => {
     expect(host.querySelector('[data-testid="camera"]')).toBeNull();
   });
 
+  it("shows a simulated workout once in the local guild report", async () => {
+    // jsdom does not implement the native dialog methods.
+    HTMLDialogElement.prototype.showModal ??= function () { this.open = true; };
+    HTMLDialogElement.prototype.close ??= function () { this.open = false; };
+    await mount();
+    await enterGym();
+    await station(".dumbbell-station");
+    for (let i = 0; i < 5; i++) await click("SIMULATE REP");
+    await click("CONTINUE");
+    await click("Guild Training Report");
+    const report = host.querySelector("dialog");
+    expect(report?.textContent).toContain("Local demo");
+    expect(report?.textContent).toContain("50 / 500 guild XP");
+    expect(report?.textContent).toContain("Your top exercise by XP · Biceps Curls");
+    await click("Refresh");
+    expect(report?.textContent).toContain("50 / 500 guild XP");
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
   it("keeps demo progression local and restores it after remounting", async () => {
     await mount();
     await click("Reach Level 5");

@@ -3,3 +3,7 @@ project_id = "fitquest"
 # Login must be callable before the user has a session.
 [functions.username-login]
 verify_jwt = false
+
+# The report handler validates the caller against Supabase Auth.
+[functions.guild-training-report]
+verify_jwt = false

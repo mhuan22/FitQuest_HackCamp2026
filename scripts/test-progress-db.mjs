@@ -26,6 +26,7 @@ try {
   const before = (await db.query('select * from public.player_progress')).rows[0];
   await db.exec(sql('migrations/202611080002_progress_v2.sql'));
   await db.exec(sql('migrations/202611080003_ultimate_stacks.sql'));
+  await db.exec(sql('migrations/202611080004_workout_sessions.sql'));
   const after = (await db.query('select * from public.player_progress')).rows[0];
   assert.deepEqual(after, before, 'Migration preserves existing data, revision and mutation identity');
   assert.equal(await valid(before.data), true, 'Legacy saves remain readable and valid');
@@ -61,5 +62,24 @@ try {
   await db.query('select public.save_player_progress($1::jsonb, 2, $2::uuid)', [JSON.stringify(oldClient), 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee']);
   assert.equal((await db.query('select data from public.player_progress')).rows[0].data.ultimateStacks, 0, 'Older clients do not restore or erase spent stacks');
 
-  console.log('Database checks passed: reproduced/fixed schema mismatch, preserved legacy progress, validated current fields, ownership, save/load, idempotent retries and revision conflicts.');
+  const playerId = '44444444-4444-4444-8444-444444444444';
+  const workoutId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+  const record = (id, player, xp) => db.query("select public.record_workout($1, $2, 'curls', 5, null, $3)", [id, player, xp]);
+  await record(workoutId, playerId, 50);
+  await record(workoutId, playerId, 50);
+  await assert.rejects(record(workoutId, '55555555-5555-4555-8555-555555555555', 50), error => error.code === '42501');
+  await assert.rejects(record(id, playerId, 500), error => error.code === '23514');
+  await assert.rejects(db.query('select * from fitquest_reporting.workout_xp'), error => error.code === '42501');
+  await db.exec(`
+    reset role;
+    create role fitquest_reporting_reader nologin;
+    grant usage on schema fitquest_reporting to fitquest_reporting_reader;
+    grant select on fitquest_reporting.workout_xp to fitquest_reporting_reader;
+    set role fitquest_reporting_reader;
+  `);
+  const workouts = (await db.query('select player_key, station, xp from fitquest_reporting.workout_xp')).rows;
+  assert.deepEqual(workouts, [{ player_key: playerId, station: 'curls', xp: 50 }], 'Report reader sees the completed workout once');
+  await assert.rejects(db.query('select * from public.workout_sessions'), error => error.code === '42501');
+
+  console.log('Database checks passed: reproduced/fixed schema mismatch, preserved legacy progress, validated current fields, ownership, save/load, idempotent retries, revision conflicts, and private, retry-safe workout reporting.');
 } finally { await db.close(); }
