@@ -1,4 +1,4 @@
-# FitQuest
+# Fit Quest
 
 FitQuest is a browser fitness RPG. Train at the gym to improve your stats, then challenge bosses at the arena gate.
 
