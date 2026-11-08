@@ -1,0 +1,25 @@
+# FitQuest music and sound credits
+
+All source recordings used here are **CC0**. Original license files are included in `licenses/`; filenames and SHA-256 hashes of the source recordings are in `manifest.json`.
+
+## Music — dancramp
+
+**8 Bit Retro RPG Music Asset Pack CC0**
+https://dancramp.itch.io/8-bit-retro-rpg-music-asset-pack
+
+- Base: `2-HOMESTEAD.wav`
+- Gym and workouts: `6-ON_AND_UP.wav`
+- Slime and Owl battles: `9-ENCOUNTER.wav`
+- Golem and Shellback battles: `12-DARKWOOD.wav`
+
+The complete original stereo loops were gain-adjusted and encoded to MP3 with gapless metadata. The shortened audition excerpts are not used during gameplay.
+
+## Effects and jingles — Kenney
+
+- Interface Sounds: https://kenney.nl/assets/interface-sounds
+- Impact Sounds: https://kenney.nl/assets/impact-sounds
+- Music Jingles (NES set): https://kenney.nl/assets/music-jingles
+
+Selected recordings were gain-adjusted and converted to mono PCM WAV for browser compatibility. Attack, guard, hurt, rep feedback, level-up, completion, victory, defeat and Ultimate cues reuse these recordings. Ultimate layers heavy and metallic impacts and pitches its repeated charge cue upward.
+
+No runtime downloads from third-party audio hosts are required. Playback uses locally served files and the player's existing saved sound preference.

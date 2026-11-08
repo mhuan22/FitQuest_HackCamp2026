@@ -1,6 +1,6 @@
 # Pixel-art audio research
 
-The current app persists a `sound` preference and renders a sound toggle, but has no music files, sound effects, or playback engine. The toggle currently changes only the preference.
+Implementation is now complete: the selected full music loops and effects are wired into gameplay and use the saved sound preference. See [AUDIO_IMPLEMENTATION.md](AUDIO_IMPLEMENTATION.md) for the final scene mapping, playback behavior, and tests. The research below records the candidate sources.
 
 ## Suggested sound direction
 
@@ -44,4 +44,4 @@ The listed pages identify these packs as CC0. Retain the downloaded license file
 7. Lower background music during training feedback and the Ultimate cinematic. Keep effects bounded so rapid reps and clicks do not build up excessive volume.
 8. Test mute persistence, rejected autoplay, audio load errors, scene transitions, repeated battle actions, and cleanup.
 
-The standalone audition player and its preview assets are available in `public/audio-audition/`. No music or effects have been integrated into gameplay.
+The standalone audition player and its preview assets are available in `public/audio-audition/`. The selected full loops and effects have now been integrated into gameplay; the comparison page remains available.

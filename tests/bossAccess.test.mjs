@@ -24,7 +24,7 @@ test('demo level shortcut grants actual XP without dropping existing levels or r
  const leveled=access.raiseDemoLevel(fresh,7);
  assert.equal(p.characterLevel(leveled),7);
  assert.equal(p.characterLevel(fresh),1);
- assert.equal(p.isUltimateUnlocked(leveled),true);
+ assert.equal(leveled.ultimateStacks,fresh.ultimateStacks);
  assert.equal(p.characterLevel(access.raiseDemoLevel(leveled,3)),7);
  assert.deepEqual(leveled.rewards,[]);
  assert.equal(access.raiseDemoLevel(fresh,Infinity),fresh);

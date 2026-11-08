@@ -29,7 +29,7 @@ These are source-code findings. The deployed database schema and policies have n
 | Sound preference and save version | `player_progress.data` | Restore settings and migrate saves |
 | Revision, mutation ID, update timestamp | `player_progress` columns | Prevent stale overwrites and make retries safe |
 
-Character level, individual stat levels, character appearance, boss access, and Ultimate eligibility are derived from XP/rewards. Recompute them rather than maintaining duplicate persisted values.
+Character level, individual stat levels, character appearance and boss access are derived from XP/rewards. Ultimate stacks are now persisted separately; see ULTIMATE.md. Recompute them rather than maintaining duplicate persisted values.
 
 If training history is needed, introduce a separate `workout_sessions` table containing user ID, unique session ID, exercise, completed reps or active seconds, XP earned, completion status, and timestamps. This is an additional feature: the existing code only stores cumulative progress. An RPC should apply session rewards and insert the session atomically, with the unique session ID preventing duplicate rewards.
 

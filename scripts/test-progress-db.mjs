@@ -17,7 +17,7 @@ try {
     grant execute on function auth.uid() to authenticated;
   `);
   await db.exec(sql('migrations/202611080001_accounts_and_progress.sql'));
-  const current = { version: 2, strengthXp: 300, agilityXp: 100, defenseXp: 50, healthXp: 20, sound: false, rewards: ['Slime Band'], streak: 3, lastTrainingDate: '2026-11-08' };
+  const current = { version: 2, ultimateStacks: 1, strengthXp: 300, agilityXp: 100, defenseXp: 50, healthXp: 20, sound: false, rewards: ['Slime Band'], streak: 3, lastTrainingDate: '2026-11-08' };
   const valid = async value => (await db.query('select public.valid_player_progress($1::jsonb) as valid', [JSON.stringify(value)])).rows[0].valid;
   assert.equal(await valid(current), false, 'Old schema reproduces rejection of current saves');
   await db.exec(`insert into auth.users values ('33333333-3333-4333-8333-333333333333', 'legacy@example.test', '{"username":"LegacyPlayer"}');
@@ -25,6 +25,7 @@ try {
       last_mutation_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';`);
   const before = (await db.query('select * from public.player_progress')).rows[0];
   await db.exec(sql('migrations/202611080002_progress_v2.sql'));
+  await db.exec(sql('migrations/202611080003_ultimate_stacks.sql'));
   const after = (await db.query('select * from public.player_progress')).rows[0];
   assert.deepEqual(after, before, 'Migration preserves existing data, revision and mutation identity');
   assert.equal(await valid(before.data), true, 'Legacy saves remain readable and valid');
@@ -34,6 +35,8 @@ try {
     { ...current, version: null }, { ...current, version: 3 },
     { ...current, strengthXp: -1 }, { ...current, strengthXp: 1.5 },
     { ...current, healthXp: 9007199254740992 },
+    { ...current, ultimateStacks: -1 }, { ...current, ultimateStacks: 4 },
+    { ...current, ultimateStacks: 1.5 }, { ...current, ultimateStacks: null },
     { ...current, streak: -1 }, { ...current, streak: 1.5 },
     { ...current, lastTrainingDate: '2026-02-31' },
     { ...current, lastTrainingDate: '', streak: 1 },
@@ -52,5 +55,11 @@ try {
   const restored = (await db.query('select data from public.player_progress')).rows[0].data;
   assert.deepEqual(restored, current, 'XP, streak, training date, rewards and preferences survive save/load');
   await assert.rejects(save(0, 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'), error => error.code === '40001');
+  const spent = { ...current, ultimateStacks: 0 };
+  await db.query('select public.save_player_progress($1::jsonb, 1, $2::uuid)', [JSON.stringify(spent), 'dddddddd-dddd-4ddd-8ddd-dddddddddddd']);
+  const oldClient = { ...current }; delete oldClient.ultimateStacks;
+  await db.query('select public.save_player_progress($1::jsonb, 2, $2::uuid)', [JSON.stringify(oldClient), 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee']);
+  assert.equal((await db.query('select data from public.player_progress')).rows[0].data.ultimateStacks, 0, 'Older clients do not restore or erase spent stacks');
+
   console.log('Database checks passed: reproduced/fixed schema mismatch, preserved legacy progress, validated current fields, ownership, save/load, idempotent retries and revision conflicts.');
 } finally { await db.close(); }

@@ -3,7 +3,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { DEFAULT_SAVE, type SaveData } from "./game/progression";
-const mocks = vi.hoisted(() => ({ save: vi.fn(), cameraProgress: null as null | ((amount: number) => void) }));
+const mocks = vi.hoisted(() => ({ audio: { play: vi.fn() }, save: vi.fn(), cameraProgress: null as null | ((amount: number) => void) }));
+vi.mock("./audio/useGameAudio", () => ({ useGameAudio: () => mocks.audio }));
 vi.mock("./game/cloudSave", () => ({ saveCloudProgress: mocks.save, SaveConflictError: class extends Error {} }));
 vi.mock("./vision/WorkoutCamera", () => ({ default: ({ onProgress }: { onProgress: (amount: number) => void }) => { mocks.cameraProgress = onProgress; return <div data-testid="camera" />; } }));
 let root: Root, host: HTMLDivElement;
@@ -12,6 +13,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   localStorage.clear();
+  mocks.audio.play.mockClear();
   mocks.save.mockReset().mockImplementation(async (_save: SaveData, revision: number) => revision + 1);
   mocks.cameraProgress = null;
   host = document.createElement("div"); document.body.append(host);
@@ -22,7 +24,7 @@ async function mount(save?: SaveData) {
   await act(async () => root.render(<App userId={save ? "account-a" : undefined} username="Player" initialSave={save} onLogout={async () => {}} onReload={() => {}} />));
 }
 async function click(text: string) {
-  const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find(b => b.textContent?.trim() === text);
+  const button = [...host.querySelectorAll<HTMLButtonElement>("button")].find(b => b.textContent?.trim() === text || b.getAttribute("aria-label") === text || b.querySelector("b")?.textContent === text);
   expect(button, `Button ${text} exists`).toBeTruthy();
   expect(button!.disabled, `Button ${text} is enabled`).toBe(false);
   await act(async () => button!.click());
@@ -72,7 +74,7 @@ describe("game integration", () => {
     expect(mocks.save).not.toHaveBeenCalled();
     await act(async () => root.unmount()); root = createRoot(host);
     await mount();
-    expect(host.textContent).toContain("Ultimate unlocked");
+    expect(host.textContent).toContain("Ultimate: 1/3 stacks");
     expect(host.querySelector(".character-level")!.textContent).toBe("LV 5");
   });
 
@@ -86,13 +88,20 @@ describe("game integration", () => {
 
   it("plays Ultimate from a real command click and saves the resulting boss reward", async () => {
     await mount(); await click("Reach Level 5"); await click("BOSS GATE"); await advance(1000);
-    await click("FIGHT SLIME"); await advance(600); await click("Fill Charges");
+    await click("FIGHT SLIME"); await advance(600); await click("Add Ultimate Stack");
     const ultimate = host.querySelector<HTMLButtonElement>('[aria-label^="Ultimate:"]')!;
     expect(ultimate.disabled).toBe(false);
     await act(async () => ultimate.click());
     expect(host.querySelector(".ultimate-fx")).not.toBeNull();
     expect(host.querySelector(".player-fighter .floating-character-progress")).not.toBeNull();
-    await advance(2100);
+    expect(mocks.audio.play).toHaveBeenCalledWith("charge");
+    await advance(900);
+    expect(mocks.audio.play).toHaveBeenCalledWith("slash");
+    expect(mocks.audio.play).not.toHaveBeenCalledWith("ultimate");
+    await advance(300);
+    expect(mocks.audio.play).toHaveBeenCalledWith("ultimate");
+    expect(mocks.audio.play).toHaveBeenCalledWith("magic");
+    await advance(900);
     expect(host.querySelector(".ultimate-fx")).toBeNull();
     await advance(1000);
     await click("DEMO: DEFEAT BOSS");
@@ -119,5 +128,56 @@ describe("progression display consistency", () => {
     expect(result.textContent).toContain("LEVEL REQUIRED");
     expect(result.textContent).toContain("Reach Character Level 3");
     expect(result.textContent).not.toContain("BOSS UNLOCKED");
+  });
+});
+
+describe("game sound integration", () => {
+  it("persists mute and keeps the control available inside battles", async () => {
+    await mount(); await click("Toggle sound");
+    expect(JSON.parse(localStorage.getItem("ironvale-demo")!).sound).toBe(false);
+    await click("BOSS GATE"); await advance(1000); await click("FIGHT SLIME"); await advance(600);
+    const toggle = host.querySelector<HTMLButtonElement>('[aria-label="Toggle sound"]')!;
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle.disabled).toBe(false);
+  });
+  it("plays rep feedback and one level-up jingle when a workout crosses a stat level", async () => {
+    await mount({ ...defaults, strengthXp: 90 });
+    await enterGym(); await station(".dumbbell-station"); await click("ENABLE CAMERA");
+    for (let i=0;i<5;i++) await act(async () => mocks.cameraProgress!(1));
+    expect(mocks.audio.play.mock.calls.filter(([effect]) => effect === "rep")).toHaveLength(4);
+    expect(mocks.audio.play.mock.calls.filter(([effect]) => effect === "level-up")).toHaveLength(1);
+    expect(mocks.audio.play.mock.calls.filter(([effect]) => effect === "complete")).toHaveLength(0);
+  });
+});
+
+describe("streak-based Ultimate stacks", () => {
+  it("is usable immediately at level one, spends one stack, and cannot recharge through Guard", async () => {
+    await mount(); await click("BOSS GATE"); await advance(1000); await click("FIGHT SLIME"); await advance(600);
+    let button=host.querySelector<HTMLButtonElement>('[aria-label^="Ultimate:"]')!;
+    expect(button.disabled).toBe(false);
+    await act(async () => button.click());
+    expect(host.querySelector(".ultimate-fx")).not.toBeNull();
+    expect(JSON.parse(localStorage.getItem("ironvale-demo")!).ultimateStacks).toBe(0);
+    await advance(3200);
+    button=host.querySelector<HTMLButtonElement>('[aria-label^="Ultimate:"]')!;
+    expect(button.disabled).toBe(true);
+    for(let turn=0;turn<3;turn++) { await click("GUARD"); await advance(2000); }
+    expect(JSON.parse(localStorage.getItem("ironvale-demo")!).ultimateStacks).toBe(0);
+    expect(button.disabled).toBe(true);
+  });
+  it("awards a stack every three demo training days and never exceeds three", async () => {
+    await mount();
+    for(let day=1;day<=9;day++) {
+      await click("Next Training Day");
+      expect(JSON.parse(localStorage.getItem("ironvale-demo")!).ultimateStacks).toBe(Math.min(3,1+Math.floor(day/3)));
+    }
+    await act(async () => root.unmount()); root=createRoot(host); await mount();
+    expect(host.textContent).toContain("Ultimate: 3/3 stacks");
+  });
+  it("persists one consumed stack to the account save immediately", async () => {
+    await mount({ ...defaults, ultimateStacks: 2 });
+    await click("BOSS GATE"); await advance(1000); await click("FIGHT SLIME"); await advance(600);
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label^="Ultimate:"]')!.click());
+    expect((mocks.save.mock.calls.at(-1)![0] as SaveData).ultimateStacks).toBe(1);
   });
 });

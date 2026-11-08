@@ -1,7 +1,7 @@
 // Tests the real migration in a disposable PostgreSQL cluster, never the hosted
 // project. Requires PostgreSQL's initdb/pg_ctl/psql on PATH, or PG_BIN set.
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createServer } from "node:net";
@@ -46,7 +46,9 @@ try {
     grant usage on schema auth to authenticated;
     grant execute on function auth.uid() to authenticated;
   `);
-  run("psql", [...args, "-f", resolve("supabase/migrations/202611080001_accounts_and_progress.sql")]);
+  for (const file of readdirSync("supabase/migrations").filter(file => file.endsWith(".sql")).sort()) {
+    run("psql", [...args, "-f", resolve("supabase/migrations", file)]);
+  }
   const output = run("psql", [...args, "-f", resolve("supabase/tests/accounts.sql")]);
   console.log(output.trim());
   console.log("Database tests passed: ownership, initialization, validation, retries, conflicts, and login throttling.");

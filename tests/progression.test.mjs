@@ -34,7 +34,7 @@ test('demo training-day clicks count streaks without granting levels', () => {
  for(let click=1;click<=3;click++) {
   ({save,date}=p.nextDemoTrainingDay(save,date));
   assert.equal(p.currentStreak(save,date),click);
-  assert.equal(p.isUltimateUnlocked(save),false);
+  assert.equal(save.ultimateStacks,1+Math.floor(click/3));
  }
  assert.equal(p.dateKey(date),'2027-01-02');
  // Skipping a calendar day breaks the streak.
@@ -44,16 +44,54 @@ test('demo training-day clicks count streaks without granting levels', () => {
 
 });
 
-test('Ultimate requires character level five, regardless of legacy unlocks or streaks', () => {
- const legacy=p.normalizeSave({version:2,ultimateUnlocked:true,streak:30,lastTrainingDate:'2026-12-30'});
- assert.equal(p.isUltimateUnlocked(legacy),false);
- const level4={...p.DEFAULT_SAVE,strengthXp:100,agilityXp:100,defenseXp:100};
- assert.equal(p.characterLevel(level4),4);
- assert.equal(p.isUltimateUnlocked(level4),false);
- const level5={...level4,healthXp:100};
- assert.equal(p.characterLevel(level5),5);
- assert.equal(p.isUltimateUnlocked(level5),true);
- assert.equal(p.isUltimateUnlocked(p.normalizeSave(level5)),true);
+test('Ultimate starts with one stack at level one and consumes one per use', () => {
+ const fresh=p.normalizeSave(null);
+ assert.equal(p.characterLevel(fresh),1);
+ assert.equal(fresh.ultimateStacks,1);
+ const spent=p.consumeUltimate(fresh);
+ assert.equal(spent.ultimateStacks,0);
+ assert.equal(p.consumeUltimate(spent),spent);
+ assert.equal(p.normalizeSave(spent).ultimateStacks,0);
+});
+
+test('Ultimate awards one stack per three consecutive training days, once per day, capped at three', () => {
+ let save=p.normalizeSave(null);
+ for(let day=1;day<=12;day++) {
+  const date=new Date(2026,10,day,12);
+  save=p.trainingDay(save,date);
+  assert.equal(save.ultimateStacks,Math.min(3,1+Math.floor(day/3)));
+  assert.deepEqual(p.trainingDay(save,date),save);
+ }
+ save=p.consumeUltimate(save);
+ assert.equal(save.ultimateStacks,2);
+ save=p.trainingDay(save,new Date(2026,10,13,12));
+ assert.equal(save.ultimateStacks,2);
+ save=p.trainingDay(save,new Date(2026,10,14,12));
+ assert.equal(save.ultimateStacks,2);
+ save=p.trainingDay(save,new Date(2026,10,15,12));
+ assert.equal(save.ultimateStacks,3);
+});
+
+test('missing a day resets earning progress but keeps banked stacks', () => {
+ let save=p.normalizeSave(null);
+ save=p.trainingDay(save,new Date('2026-11-01T12:00:00'));
+ save=p.trainingDay(save,new Date('2026-11-02T12:00:00'));
+ save=p.trainingDay(save,new Date('2026-11-04T12:00:00'));
+ assert.equal(save.streak,1); assert.equal(save.ultimateStacks,1);
+ assert.equal(p.daysUntilUltimate(save,new Date('2026-11-04T12:00:00')),2);
+ save=p.trainingDay(save,new Date('2026-11-05T12:00:00'));
+ save=p.trainingDay(save,new Date('2026-11-06T12:00:00'));
+ assert.equal(save.ultimateStacks,2);
+ save=p.trainingDay(save,new Date('2026-11-08T12:00:00'));
+ assert.equal(save.ultimateStacks,2);
+});
+
+test('legacy streaks grant historical stacks without regranting already spent stacks', () => {
+ assert.equal(p.normalizeSave({version:2,streak:3,lastTrainingDate:'2026-11-08'}).ultimateStacks,2);
+ assert.equal(p.normalizeSave({version:2,streak:6,lastTrainingDate:'2026-11-08'}).ultimateStacks,3);
+ assert.equal(p.normalizeSave({version:2,streak:6,lastTrainingDate:'2026-11-08',ultimateStacks:0}).ultimateStacks,0);
+ assert.equal(p.normalizeSave({ultimateStacks:50}).ultimateStacks,3);
+ assert.equal(p.normalizeSave({ultimateStacks:-1}).ultimateStacks,0);
 });
 
 test('character XP tracks the nearest stat level without changing character level rules', () => {
@@ -68,16 +106,16 @@ test('character XP tracks the nearest stat level without changing character leve
  assert.equal(next.required,100);
 });
 
-test('single-stat grinding cannot bypass balanced character levels or Ultimate unlock', () => {
+test('single-stat grinding cannot bypass balanced character levels', () => {
  const focused={...p.DEFAULT_SAVE,strengthXp:10000};
  assert.equal(p.characterLevel(focused),2);
- assert.equal(p.isUltimateUnlocked(focused),false);
+
  assert.equal(p.characterXpProgress(focused).stat,'AGI');
  const twoStats={...focused,agilityXp:100};
  assert.equal(p.characterLevel(twoStats),3);
  const balanced={...twoStats,defenseXp:100,healthXp:100};
  assert.equal(p.characterLevel(balanced),6);
- assert.equal(p.isUltimateUnlocked(balanced),true);
+
  assert.equal(p.characterXpProgress(balanced).stat,'AGI');
  assert.equal(balanced.strengthXp,10000);
 });

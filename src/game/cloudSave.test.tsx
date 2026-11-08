@@ -56,3 +56,15 @@ describe("account cloud saves", () => {
     await expect(saveCloudProgress(save, 5, "id")).rejects.toThrow("invalid revision");
   });
 });
+
+it("restores historical streak stacks for older saves and preserves spent stacks", async () => {
+  const old={...save}; delete (old as Partial<typeof old>).ultimateStacks;
+  mocks.progress.mockResolvedValue({data:{data:old,revision:5},error:null});
+  expect((await loadCloudSave("user-a")).save.ultimateStacks).toBe(2);
+  mocks.progress.mockResolvedValue({data:{data:{...save,ultimateStacks:0},revision:6},error:null});
+  expect((await loadCloudSave("user-a")).save.ultimateStacks).toBe(0);
+});
+it.each([-1,4,1.5,null])("rejects invalid stored Ultimate stacks %s", async ultimateStacks => {
+  mocks.progress.mockResolvedValue({data:{data:{...save,ultimateStacks},revision:6},error:null});
+  await expect(loadCloudSave("user-a")).rejects.toThrow("Ultimate stacks");
+});

@@ -7,18 +7,19 @@ Supabase Auth owns account credentials and sessions. `profiles` owns the usernam
 - Versioned XP for Strength, Agility, Defense and Vitality.
 - Training streak and last completed training date.
 - Earned boss rewards, from which boss progression is restored.
+- Ultimate stacks (one starter stack, +1 per three consecutive training days, maximum three).
 - Sound preference.
 - Server revision, mutation identity and update timestamp for reliable writes.
 
-Stat levels, balanced character level, appearance, boss eligibility and Ultimate eligibility are recalculated from the saved XP and rewards. They do not need redundant database columns.
+Stat levels, balanced character level, appearance and boss eligibility are recalculated from saved XP and rewards. Ultimate is available at character level one; each use consumes one saved stack and does not require battle charges.
 
-XP saves as it is earned, including partial training sessions. A completed session also saves the daily streak. Active battles, temporary HP/charges, camera data and the unfinished session interface are not resumed after refresh. Boss clear rewards are persisted.
+XP saves as it is earned, including partial training sessions. A completed session also saves the daily streak. Active battles, temporary HP, camera data and the unfinished session interface are not resumed after refresh. Boss clear rewards are persisted.
 
 ## Fix for rejected cloud saves
 
 The first database migration requires an obsolete `skin` field and rejects version, streak and training date. The game now writes version 2, so that validator rejects every changed save.
 
-Apply `supabase/migrations/202611080002_progress_v2.sql` to the existing project. It replaces the validator and updates the default for new players; it does not reset existing progress, revisions, ownership policies or retry identities. Existing legacy XP is converted once on loading and written back in the current format on the next save.
+Apply `supabase/migrations/202611080002_progress_v2.sql` to the existing project, then `supabase/migrations/202611080003_ultimate_stacks.sql` for persisted Ultimate stacks. It replaces the validator and updates the default for new players; it does not reset existing progress, revisions, ownership policies or retry identities. Existing legacy XP is converted once on loading and written back in the current format on the next save.
 
 Preferred deployment is through the project's Supabase CLI migration workflow, after reviewing the linked project and pending migration list. If the first migration was applied manually, reconcile migration history before attempting `db push`, so it does not recreate existing tables.
 

@@ -5,27 +5,30 @@ import vm from 'node:vm';
 import ts from 'typescript';
 const compile = source => ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.ESNext } }).outputText;
 const { ULTIMATE } = await import(`data:text/javascript;base64,${Buffer.from(compile(readFileSync(new URL('../src/game/ultimate.ts', import.meta.url), 'utf8'))).toString('base64')}`);
+const { consumeUltimate } = await import(`data:text/javascript;base64,${Buffer.from(compile(readFileSync(new URL('../src/game/progression.ts', import.meta.url), 'utf8'))).toString('base64')}`);
 const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const sourceFile = ts.createSourceFile('App.tsx', app, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const game = sourceFile.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'App');
 const turn = game.body.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'battleTurn').getText(sourceFile);
-function fight(bossHp) {
-  const battle = { boss: 'slime', bossHp, playerHp: 100, busy: false, result: null, charge: 3, opening: false, turn: 0, bossAttackCount: 0, heavyReady: false };
+function fight(bossHp, stacks = 1) {
+  let playerSave = { ultimateStacks: stacks, rewards: [] };
+  const battle = { boss: 'slime', bossHp, playerHp: 100, busy: false, result: null,  opening: false, turn: 0, bossAttackCount: 0, heavyReady: false };
   let state = { ...battle }, now = 0;
   const timers = [];
   const context = vm.createContext({
-    battle, turnLocked: { current: false }, ultimateUnlocked: true, ultimateStatus: '',
-    save: { ultimateUnlocked: true }, strength: 1, defense: 1, agility: 0,
+    audio: { play() {} }, battle, turnLocked: { current: false }, ultimateStatus: '',
+    save: playerSave, consumeUltimate, strength: 1, defense: 1, agility: 0,
     ULTIMATE, PLAYER_ATTACK_MS: 800, activeBoss: { name: 'Slime', attack: 5 },
     bossAttackTiming: () => ({ impact: 420, duration: 735 }),
     later: (callback, delay) => timers.push({ callback, at: now + delay }),
     setBattle: update => { state = update(state); },
-    setSave: () => {},
+    setSave: update => { playerSave = update(playerSave); context.save = playerSave; },
   });
   vm.runInContext(compile(turn), context);
   context.battleTurn('special');
   return {
     state: () => state,
+    save: () => playerSave,
     advance(to) {
       while (true) {
         timers.sort((a, b) => a.at - b.at);
@@ -40,7 +43,7 @@ test('Ultimate charges first, lands damage on the cinematic impact, and counters
   const h = fight(100);
   assert.equal(h.state().ultimate, true);
   assert.equal(h.state().action, 'idle');
-  assert.equal(h.state().charge, 0);
+  assert.equal(h.save().ultimateStacks, 0);
   h.advance(ULTIMATE.windup);
   assert.equal(h.state().action, 'attack');
   assert.equal(h.state().bossHp, 100);
@@ -64,4 +67,12 @@ test('a finishing Ultimate completes its cinematic before the victory overlay', 
   assert.equal(h.state().ultimate, false);
   assert.equal(h.state().result, 'victory');
   assert.equal(h.state().busy, false);
+});
+
+test('Ultimate with no stacks cannot start or deal damage', () => {
+ const h=fight(100,0);
+ h.advance(3000);
+ assert.equal(h.state().bossHp,100);
+ assert.equal(h.state().busy,false);
+ assert.equal(h.save().ultimateStacks,0);
 });

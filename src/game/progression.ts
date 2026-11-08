@@ -2,12 +2,12 @@ export type StatKey = "strength" | "agility" | "defense" | "health";
 type XpKey = "strengthXp" | "agilityXp" | "defenseXp" | "healthXp";
 export type SaveData = {
   strengthXp: number; agilityXp: number; defenseXp: number; healthXp: number;
-  version: number; streak: number; lastTrainingDate: string;
+  version: number; streak: number; lastTrainingDate: string; ultimateStacks: number;
   sound: boolean; rewards: string[];
 };
 export const DEFAULT_SAVE: SaveData = {
   strengthXp: 0, agilityXp: 0, defenseXp: 0, healthXp: 0,
-  version: 2, streak: 0, lastTrainingDate: "", sound: true, rewards: [],
+  version: 2, streak: 0, lastTrainingDate: "", ultimateStacks: 1, sound: true, rewards: [],
 };
 export const STAT_INFO: Record<StatKey, { label: string; short: string; xpKey: XpKey }> = {
   strength: { label: "Strength", short: "STR", xpKey: "strengthXp" },
@@ -34,8 +34,14 @@ export function characterXpProgress(s: SaveData) {
   // Only a lowest-level stat can move balanced character progression forward.
   return stats.filter(stat => stat.level === lowest).reduce((closest, stat) => stat.required - stat.earned < closest.required - closest.earned ? stat : closest);
 }
-export const ULTIMATE_UNLOCK_LEVEL = 5;
-export const isUltimateUnlocked = (s: SaveData) => characterLevel(s) >= ULTIMATE_UNLOCK_LEVEL;
+export const MAX_ULTIMATE_STACKS = 3;
+export const ULTIMATE_STREAK_DAYS = 3;
+export function consumeUltimate(s: SaveData): SaveData {
+  return s.ultimateStacks > 0 ? { ...s, ultimateStacks: s.ultimateStacks - 1 } : s;
+}
+export function daysUntilUltimate(s: SaveData, date = new Date()) {
+  return s.ultimateStacks >= MAX_ULTIMATE_STACKS ? 0 : ULTIMATE_STREAK_DAYS - currentStreak(s, date) % ULTIMATE_STREAK_DAYS;
+}
 export function dateKey(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 }
@@ -48,7 +54,9 @@ export function trainingDay(s: SaveData, date = new Date()): SaveData {
   if (!Number.isFinite(date.getTime()) || s.lastTrainingDate >= key) return s;
   const yesterday = new Date(date); yesterday.setDate(yesterday.getDate()-1);
   const streak = s.lastTrainingDate === dateKey(yesterday) ? s.streak + 1 : 1;
-  return { ...s, streak, lastTrainingDate: key };
+  const ultimateStacks = streak % ULTIMATE_STREAK_DAYS === 0
+    ? Math.min(MAX_ULTIMATE_STACKS, s.ultimateStacks + 1) : s.ultimateStacks;
+  return { ...s, streak, lastTrainingDate: key, ultimateStacks };
 }
 export function nextDemoTrainingDay(s: SaveData, date: Date) {
   const nextDate = new Date(date);
@@ -68,6 +76,9 @@ export function normalizeSave(input: unknown): SaveData {
   const last = typeof parsed.lastTrainingDate === "string" ? parsed.lastTrainingDate : "";
   save.lastTrainingDate = /^\d{4}-\d{2}-\d{2}$/.test(last) && dateKey(new Date(last + "T12:00:00")) === last ? last : "";
   save.streak = save.lastTrainingDate && typeof parsed.streak === "number" ? cleanXp(parsed.streak) : 0;
+  save.ultimateStacks = typeof parsed.ultimateStacks === "number" && Number.isFinite(parsed.ultimateStacks)
+    ? Math.min(MAX_ULTIMATE_STACKS, cleanXp(parsed.ultimateStacks))
+    : Math.min(MAX_ULTIMATE_STACKS, 1 + Math.floor(save.streak / ULTIMATE_STREAK_DAYS));
   return save;
 }
 export function loadSave(storageKey = "ironvale-save"): SaveData {

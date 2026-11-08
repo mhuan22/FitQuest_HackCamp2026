@@ -18,6 +18,9 @@ function checkedSave(value: unknown): SaveData {
   if (data.version === 2 && (!Number.isSafeInteger(data.streak) || Number(data.streak) < 0 || typeof data.lastTrainingDate !== "string")) {
     throw new Error("Your saved training history could not be read. It has not been replaced.");
   }
+  if (data.ultimateStacks !== undefined && (!Number.isSafeInteger(data.ultimateStacks) || Number(data.ultimateStacks) < 0 || Number(data.ultimateStacks) > 3)) {
+    throw new Error("Your saved Ultimate stacks could not be read. They have not been replaced.");
+  }
   const normalized = normalizeSave(data);
   if (data.version === 2 && normalized.lastTrainingDate !== data.lastTrainingDate) {
     throw new Error("Your saved training date is invalid. It has not been replaced.");

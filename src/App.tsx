@@ -1,10 +1,11 @@
+import { useGameAudio } from "./audio/useGameAudio";
 import { BOSS_REQUIREMENTS, bossLockReason, raiseDemoLevel, unlockDemoBoss, type BossKey } from "./game/bossAccess";
 import { UltimateEffect } from "./UltimateEffect";
 import { ULTIMATE } from "./game/ultimate";
 import { useAnimationFrame } from "./game/useAnimationFrame";
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { useProgress } from "./game/useProgress";
-import { DEFAULT_SAVE, currentStreak, xpProgress, characterLevel, characterXpProgress, isUltimateUnlocked, ULTIMATE_UNLOCK_LEVEL, trainingDay, nextDemoTrainingDay, levelFromXp, levelProgress, STAT_INFO, type SaveData } from "./game/progression";
+import { DEFAULT_SAVE, currentStreak, xpProgress, characterLevel, characterXpProgress, consumeUltimate, daysUntilUltimate, MAX_ULTIMATE_STACKS, trainingDay, nextDemoTrainingDay, levelFromXp, levelProgress, STAT_INFO, type SaveData } from "./game/progression";
 import { RUN_BLOCK_SECONDS, STATIONS, XP_PER_UNIT, type CharacterAction, type StationKey } from "./training/stations";
 import WorkoutCamera from "./vision/WorkoutCamera";
 import { exercises } from "./vision/repCounter";
@@ -578,7 +579,6 @@ export default function App({ userId, username, initialSave, initialRevision = 0
     boss: "slime" as BossKey,
     playerHp: 100,
     bossHp: 50,
-    charge: 0,
     turn: 0,
     message: "The Training Slime jiggles into your path!",
     action: "idle" as "idle" | "attack" | "guard" | "hit",
@@ -607,12 +607,10 @@ export default function App({ userId, username, initialSave, initialRevision = 0
   const rewardUnits = timed ? Math.floor(shownProgress / RUN_BLOCK_SECONDS) : progress;
   const selectedStat = activeStation.stat;
   const activeStatInfo = STAT_INFO[selectedStat];
-  const ultimateUnlocked = isUltimateUnlocked(save);
-  const ultimateStatus = !ultimateUnlocked
-    ? `Locked: reach Character Level ${ULTIMATE_UNLOCK_LEVEL} (current: ${characterLevel(save)})`
-    : battle.charge < 3
-      ? `Unlocked · ${battle.charge}/3 charges — Attack or Guard to charge`
-      : battle.busy ? "Ready after this animation finishes" : "Ready · deals double attack damage";
+  const daysToUltimate = daysUntilUltimate(save, demo ? demoDate : new Date());
+  const ultimateStatus = save.ultimateStacks === 0
+    ? `No stacks · train ${daysToUltimate} more consecutive day${daysToUltimate === 1 ? "" : "s"}`
+    : battle.busy ? `${save.ultimateStacks}/3 stacks · ready after this animation` : `${save.ultimateStacks}/3 stacks · uses one stack`;
   const characterXp = characterXpProgress(save);
   const streakDays = currentStreak(save, demo ? demoDate : new Date());
   const activeXp = save[activeStatInfo.xpKey];
@@ -633,6 +631,15 @@ export default function App({ userId, username, initialSave, initialRevision = 0
   const golemAttackPattern = (battle.bossAttackCount + 2) % 3;
   const owlAttackPattern = (battle.bossAttackCount + 1) % 2;
   const shellbackAttackPattern = (battle.bossAttackCount + 2) % 3;
+  const music = scene === "battle" ? battle.result ? null : battle.boss === "golem" || battle.boss === "shellback" ? "dark-battle" : "battle" : scene === "gym" ? "training" : "base";
+  const audio = useGameAudio(save.sound, music, battle.ultimate ? 0.18 : exercise ? 0.55 : 1, (exercise && paused) || saveBlocked || loggingOut);
+  useEffect(() => {
+    if (scene === "battle" && battle.result) audio.play(battle.result === "victory" ? "victory" : "defeat");
+  }, [audio, scene, battle.result]);
+  useEffect(() => {
+    if (reward) audio.play(reward.leveled ? "level-up" : "complete");
+  }, [audio, reward]);
+
 
 
   function changeScene(next: Scene) {
@@ -706,13 +713,14 @@ export default function App({ userId, username, initialSave, initialRevision = 0
     sessionProgress.current = next;
     setProgress(timed ? Math.floor(next / 1000) * 1000 : next);
     const units = timed ? Math.floor(next / (RUN_BLOCK_SECONDS * 1000))-Math.floor(previous / (RUN_BLOCK_SECONDS * 1000)) : next-previous;
+    if (units > 0 && next < goal) audio.play("rep");
     if (units > 0) setSave(current => ({...current, [activeStatInfo.xpKey]:current[activeStatInfo.xpKey]+units*XP_PER_UNIT}));
     if (next === goal) {
       const gained = (timed ? target / RUN_BLOCK_SECONDS : target) * XP_PER_UNIT;
       setSave(current => trainingDay(current, demo ? demoDate : new Date()));
       setReward({ xp: gained, leveled: levelFromXp(sessionStartXp.current + gained) > levelFromXp(sessionStartXp.current) });
     }
-  }, [goal, timed, activeStatInfo.xpKey, target, exercise, paused, reward, demo, demoDate, saveBlocked, loggingOut]);
+  }, [goal, timed, activeStatInfo.xpKey, target, exercise, paused, reward, demo, demoDate, saveBlocked, loggingOut, audio]);
 
   const progressHandler = useRef(addProgress);
   progressHandler.current = addProgress;
@@ -741,8 +749,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
       boss,
       playerHp: maxHealth,
       bossHp: bossConfig.hp,
-      charge: 0,
-      turn: 0,
+        turn: 0,
       message: bossConfig.intro,
       action: "idle",
       bossAction: "idle",
@@ -787,13 +794,14 @@ export default function App({ userId, username, initialSave, initialRevision = 0
 
   function battleTurn(move: "attack" | "guard" | "special") {
     if (turnLocked.current || battle.busy || battle.result) return;
-    if (move === "special" && (battle.charge < 3 || !ultimateUnlocked)) {
+    if (move === "special" && save.ultimateStacks <= 0) {
       setBattle((b) => ({ ...b, message: ultimateStatus }));
       return;
     }
 
     turnLocked.current = true;
     const isUltimate = move === "special";
+    if (isUltimate) setSave(consumeUltimate);
     const attackDuration = isUltimate ? ULTIMATE.duration : PLAYER_ATTACK_MS;
     const armor = battle.boss === "golem" ? 6 : battle.boss === "owl" ? 3 : battle.boss === "shellback" ? 4 : 0;
     const baseDamage = Math.max(1, 10 + strength * 2 - armor);
@@ -813,7 +821,6 @@ export default function App({ userId, username, initialSave, initialRevision = 0
       bossAction: "idle",
       opening: false,
       guarding: move === "guard",
-      charge: move === "special" ? 0 : Math.min(3, b.charge + 1),
       message:
         move === "guard"
           ? "You brace for the next attack."
@@ -823,12 +830,18 @@ export default function App({ userId, username, initialSave, initialRevision = 0
     }));
 
     if (isUltimate) {
+      audio.play("charge");
+      later(() => audio.play("charge", 1.25), 250);
+      later(() => audio.play("charge", 1.5), 500);
+      later(() => audio.play("slash"), ULTIMATE.windup);
       later(() => setBattle(b => ({ ...b, action: "attack", message: "DAWNBREAKER!" })), ULTIMATE.windup);
       later(() => setBattle(b => ({ ...b, ultimate: false, action: "idle" })), ULTIMATE.duration);
     }
 
     if (damage > 0) {
       later(() => {
+        audio.play(isUltimate ? "ultimate" : "hit");
+        if (isUltimate) audio.play("magic");
         setBattle((b) => ({
           ...b,
           bossHp,
@@ -882,7 +895,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
           setBattle(b => ({...b, busy:false, turn:nextTurn, heavyReady:false, action:"idle", bossAction:"hit", message:"Shield broken! The slam is canceled."})); return;
         }
         if (battle.boss === "shellback" && move === "guard") {
-          setBattle(b => ({...b, busy:false, turn:nextTurn, action:"idle", message:"You build charge safely. Shellback counters only damaging moves."})); return;
+          setBattle(b => ({...b, busy:false, turn:nextTurn, action:"idle", message:"You brace safely. Shellback counters only damaging moves."})); return;
         }
         if (battle.boss !== "shellback" && !battle.heavyReady && nextTurn % 3 === 2) {
           setBattle((b) => ({
@@ -912,7 +925,6 @@ export default function App({ userId, username, initialSave, initialRevision = 0
         setBattle((b) => ({
           ...b,
           opening: battle.boss === "owl" && battle.heavyReady && move === "guard" && agility >= 2,
-          charge: battle.boss === "owl" && battle.heavyReady && move === "guard" && agility >= 2 ? Math.min(3, b.charge+1) : b.charge,
           busy: true,
           turn: nextTurn,
           action: move === "guard" ? "guard" : "idle",
@@ -921,14 +933,16 @@ export default function App({ userId, username, initialSave, initialRevision = 0
           heavyReady: false,
           message: `${activeBoss.name} winds up an attack...`,
         }));
-        later(() => setBattle(b => ({
+        later(() => {
+          if (!dodged) audio.play(move === "guard" ? "guard" : battle.heavyReady ? "heavy" : "hurt");
+          setBattle(b => ({
           ...b,
           playerHp,
           action: dodged ? "idle" : "hit",
           message: dodged
             ? "Quick feet! You dodged the attack."
             : move === "guard"
-              ? `Guard absorbs the blow. ${dealt} damage taken.${battle.boss === "owl" && battle.heavyReady && agility >= 2 ? " Extra charge earned! Attack next turn for 1.5x damage." : ""}`
+              ? `Guard absorbs the blow. ${dealt} damage taken.${battle.boss === "owl" && battle.heavyReady && agility >= 2 ? " Damage opening earned! Attack next turn for 1.5x damage." : ""}`
               : `${
                   battle.boss === "slime"
                     ? "Slime"
@@ -938,7 +952,8 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                         ? "Owl"
                         : "Shellback"
                 } strikes for ${dealt} damage.`,
-        })), timing.impact);
+        }));
+        }, timing.impact);
         later(() => {
           turnLocked.current = false;
           setBattle(b => ({
@@ -992,10 +1007,13 @@ export default function App({ userId, username, initialSave, initialRevision = 0
       <i aria-hidden="true" />
       {saveStatus === "saving" ? "Saving progress…" : saveStatus === "error" ? "Save failed · recovery kept on this device" : saveStatus === "conflict" ? "Cloud save changed · reload required" : userId ? "Progress saved to account" : demo ? "Demo progress saved on this device" : "Guest progress saved on this device"}
     </div>
+    <button className={`game-audio-toggle ${save.sound ? "active" : ""}`} aria-label="Toggle sound" aria-pressed={save.sound}
+      title={save.sound ? "Mute music and effects" : "Enable music and effects"} disabled={saveBlocked || loggingOut}
+      onClick={() => setSave(s => ({ ...s, sound: !s.sound }))}><PixelIcon type="sound" /></button>
     <main inert={saveBlocked || loggingOut || undefined} className={`game-shell scene-${scene} ${transition ? "is-transitioning" : ""}`}>
       {demo && <details className="demo-controls" style={{position:"fixed",bottom:8,left:8,zIndex:9999,background:"#182018",color:"white",padding:12}}><summary>Demo Controls · Separate Save</summary>
         <p>{demoDate.toLocaleDateString()} · Training streak: {currentStreak(save, demoDate)} days</p>
-        <p>{ultimateUnlocked ? "Ultimate unlocked — use Fill Charges in battle to test it." : `Reach Character Level ${ULTIMATE_UNLOCK_LEVEL} to unlock Ultimate. Use Add XP to test.`}</p>
+        <p>Ultimate: {save.ultimateStacks}/3 stacks · Earn one per 3-day training streak. {daysToUltimate === 0 ? "Stacks full." : `${daysToUltimate} more consecutive training days until the next stack.`}</p>
         <button disabled={exercise || battle.busy} onClick={() => {
           const next = nextDemoTrainingDay(save, demoDate);
           setDemoDate(next.date);
@@ -1010,7 +1028,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
           {(["golem", "owl", "shellback"] as BossKey[]).map(boss => <button key={boss} disabled={exercise || scene === "battle"} onClick={() => setSave(s => unlockDemoBoss(s, boss))}>Unlock {BOSSES[boss].name} (LV {BOSS_REQUIREMENTS[boss].level} + prior clears)</button>)}
         </div>
         <button onClick={()=>{clearTimers(); setCameraEnabled(false);setCameraReady(false);setExercise(false);setReward(null);setModal(null);setScene("base");setTransition(false);setMoving(false);setSave({...DEFAULT_SAVE,rewards:[]});setDemoDate(new Date());}}>Reset Demo</button>
-        <button disabled={scene !== "battle" || battle.busy || !!battle.result} onClick={()=>setBattle(b=>({...b,charge:3}))}>Fill Charges</button>
+        <button disabled={battle.busy || save.ultimateStacks >= MAX_ULTIMATE_STACKS} onClick={() => setSave(s => ({ ...s, ultimateStacks: Math.min(MAX_ULTIMATE_STACKS, s.ultimateStacks + 1) }))}>Add Ultimate Stack</button>
       </details>}
       {hud && (
         <>
@@ -1027,16 +1045,10 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2c1 5-3 6-2 10 2-1 3-3 3-5 4 3 6 6 6 9a8 8 0 0 1-16 0c0-4 3-7 5-9-1 4 0 5 1 6-1-5 5-6 3-11Z" fill="currentColor" /></svg>
                 {streakDays} DAY{streakDays === 1 ? "" : "S"} STREAK
               </small>
+              <small className="ultimate-stack-note">ULT {save.ultimateStacks}/3<span className="ultimate-earn-hint"> · {daysToUltimate === 0 ? "STACKS FULL" : `+1 IN ${daysToUltimate} TRAINING DAYS`}</span></small>
             </div>
           </div>
           <div className="top-controls">
-            <button
-              className={save.sound ? "active" : ""}
-              onClick={() => setSave((s) => ({ ...s, sound: !s.sound }))}
-              aria-label="Toggle sound"
-            >
-              <PixelIcon type="sound" />
-            </button>
             <button
               onClick={() => setHint("Settings: progress saves automatically on this device.")}
               aria-label="Settings"
@@ -1252,7 +1264,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
               <div>
                 <span>ADVENTURER</span>
                 <h2>ROOK</h2>
-                <small>Character Level {characterLevel(save)} · Streak {currentStreak(save, demo ? demoDate : new Date())} days · {ultimateUnlocked ? "Ultimate unlocked" : `Ultimate unlocks at Level ${ULTIMATE_UNLOCK_LEVEL}`}</small>
+                <small>Character Level {characterLevel(save)} · Streak {currentStreak(save, demo ? demoDate : new Date())} days · Ultimate {save.ultimateStacks}/3 stacks · +1 every 3 consecutive training days</small>
               </div>
             </div>
             <p className="stats-note">Balanced training: stats count toward character level up to one level above your lowest stat. Extra stat levels still improve combat. Train {characterXp.stat} next to progress.</p>
@@ -1368,7 +1380,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                     ? "Master of the frozen throne. Survive its swift dives and the blizzard it gathers overhead."
                     : "The final guardian waits beneath an ancient iron shell. Break through the mire and conquer the last arena."}
             </p>
-            <p className="stats-note">{featuredBoss === "slime" ? "Practice Guard before a telegraphed slam." : featuredBoss === "golem" ? `Strength ${strength}/4 recommended · ${Math.min(save.strengthXp,600)}/600 XP. Train curls to break the shield with a 12-damage hit. Guard remains an option.` : featuredBoss === "owl" ? `Agility ${agility}/2 recommended · ${Math.min(save.agilityXp,100)}/100 XP. Guard the dive for an extra charge and a one-turn damage opening.` : `Defense ${defense}/3 recommended · ${Math.min(save.defenseXp,300)}/300 XP. Train sit-ups to resist counters; Guard builds charge safely.`}</p>
+            <p className="stats-note">{featuredBoss === "slime" ? "Practice Guard before a telegraphed slam." : featuredBoss === "golem" ? `Strength ${strength}/4 recommended · ${Math.min(save.strengthXp,600)}/600 XP. Train curls to break the shield with a 12-damage hit. Guard remains an option.` : featuredBoss === "owl" ? `Agility ${agility}/2 recommended · ${Math.min(save.agilityXp,100)}/100 XP. Guard the dive for a one-turn damage opening.` : `Defense ${defense}/3 recommended · ${Math.min(save.defenseXp,300)}/300 XP. Train sit-ups to resist counters; Guard avoids its counter.`}</p>
             {featuredBoss !== "golem" && (
               <div className={`future-boss ${golemUnlocked ? "unlocked" : ""}`}>
                 <span className="golem-arena-preview" aria-hidden="true">
@@ -1691,16 +1703,16 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                 <span>Reduce damage</span>
               </button>
               <button
-                disabled={battle.busy || battle.charge < 3 || !ultimateUnlocked}
+                disabled={battle.busy || save.ultimateStacks === 0}
                 title={ultimateStatus}
                 aria-label={`Ultimate: ${ultimateStatus}`}
                 onClick={() => battleTurn("special")}
               >
                 <b>ULTIMATE</b>
                 <small>{ultimateStatus}</small>
-                <span className="charge-meter">
+                <span className="ultimate-stack-meter" aria-label={`${save.ultimateStacks} of 3 Ultimate stacks`}>
                   {[1, 2, 3].map((n) => (
-                    <i key={n} className={battle.charge >= n ? "charged" : ""} />
+                    <i key={n} className={save.ultimateStacks >= n ? "filled" : ""} />
                   ))}
                 </span>
               </button>
