@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import AuthScreen from "./AuthScreen";
 import golemIdleA from "./assets/bosses/golem/idle-a.png";
 import golemIdleB from "./assets/bosses/golem/idle-b.png";
 import owlIdleA from "./assets/bosses/owl/idle-a.png";
@@ -596,6 +597,7 @@ function Frame({
 }
 
 export default function App() {
+  const [enteredGame, setEnteredGame] = useState(false);
   const [save, setSave] = useState<SaveData>(loadSave);
   const [scene, setScene] = useState<Scene>("base");
   const [modal, setModal] = useState<"station" | "boss" | "wardrobe" | "stats" | null>(null);
@@ -966,6 +968,8 @@ export default function App() {
 
   const hud = scene !== "battle" && !exercise;
 
+  if (!enteredGame) return <AuthScreen onGuest={() => setEnteredGame(true)} />;
+
   return (
     <main className={`game-shell scene-${scene} ${transition ? "is-transitioning" : ""}`}>
       {hud && (
@@ -1065,7 +1069,7 @@ export default function App() {
       {scene === "gym" && (
         <section className="room gym-room" aria-label="Gym interior">
           <div className="gym-backwall">
-            <div className="gym-title">IRONVALE GYM</div>
+            <div className="gym-title">FIT QUEST GYM</div>
             <div className="sword-banner">I</div>
             <div className="sword-banner right">I</div>
           </div>
