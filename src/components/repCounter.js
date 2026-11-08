@@ -21,6 +21,26 @@ export const exercises = {
     isStart: (angle, thighSlope) => angle >= 155 && thighSlope >= 55,
     isTarget: (angle, thighSlope) => angle <= 110 && thighSlope <= 15,
   },
+  situp: {
+    label: 'Sit-up',
+    stat: 'Defense',
+    sides: [[11, 23, 25], [12, 24, 26]],
+    start: 'Lie back with your knees bent to begin.',
+    move: 'Raise your torso toward your knees.',
+    finish: 'Lower your torso back toward the mat.',
+    frame: 'Set the camera beside you with your shoulder, hip, and knee in view.',
+    isStart: (_angle, torsoSlope) => Math.abs(torsoSlope) <= 20,
+    isTarget: (_angle, torsoSlope) => torsoSlope >= 55,
+    minRepMs: 500,
+    showSlope: true,
+  },
+  run: {
+    label: 'Endurance',
+    timed: true,
+    frame: 'Keep the part of your body you’re moving visible.',
+    searching: 'Waiting for sustained movement.',
+    moving: 'Movement detected. Active time is counting.',
+  },
 };
 
 const holdMs = 150;
@@ -34,12 +54,12 @@ export function jointVisible(point) {
 export function createRepCounter(exerciseId) {
   const exercise = exercises[exerciseId];
   let reps = 0;
-  let phase, side, angle, slope, holdSince, lastFrame;
+  let phase, side, angle, slope, holdSince, lastFrame, movementStartedAt;
 
   function loseTracking() {
     phase = 'start';
     side = null;
-    angle = slope = holdSince = lastFrame = null;
+    angle = slope = holdSince = lastFrame = movementStartedAt = null;
   }
   loseTracking();
 
@@ -74,23 +94,30 @@ export function createRepCounter(exerciseId) {
 
     const degrees = 180 / Math.PI;
     const measuredAngle = Math.atan2(Math.abs(ax * by - ay * bx), ax * bx + ay * by) * degrees;
-    const thighSlope = Math.atan2(-ay, Math.abs(ax)) * degrees;
+    const measuredSlope = Math.atan2(-ay, Math.abs(ax)) * degrees;
     const weight = lastFrame === null ? 1 : 1 - Math.exp(-(time - lastFrame) / 80);
     angle = angle === null ? measuredAngle : angle + (measuredAngle - angle) * weight;
-    slope = slope === null ? thighSlope : slope + (thighSlope - slope) * weight;
+    slope = slope === null ? measuredSlope : slope + (measuredSlope - slope) * weight;
     lastFrame = time;
 
-    const reached = phase === 'move' ? exercise.isTarget(angle, slope) : exercise.isStart(angle, slope);
+    const atStart = exercise.isStart(angle, slope);
+    if (exercise.minRepMs && phase === 'move') {
+      movementStartedAt = atStart ? null : (movementStartedAt ?? time);
+    }
+
+    const reached = phase === 'move' ? exercise.isTarget(angle, slope) : atStart;
     holdSince = reached ? (holdSince ?? time) : null;
     let counted = false;
 
     if (holdSince !== null && time - holdSince >= holdMs) {
+      counted = phase === 'finish' && (!exercise.minRepMs ||
+        (movementStartedAt !== null && holdSince - movementStartedAt >= exercise.minRepMs));
       holdSince = null;
-      counted = phase === 'finish';
       if (counted) reps += 1;
+      if (phase !== 'move') movementStartedAt = null;
       phase = phase === 'move' ? 'finish' : 'move';
     }
-    return { reps, phase, angle: Math.round(angle), counted };
+    return { reps, phase, angle: Math.round(exercise.showSlope ? slope : angle), counted };
   }
 
   return { update, loseTracking };

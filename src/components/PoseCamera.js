@@ -15,6 +15,15 @@ export function useCameraAccess() {
   };
 }
 
+const skeletons = {
+  curl: { bodyParts: ['leftArm', 'rightArm'] },
+  squat: { bodyParts: ['leftLeg', 'rightLeg'] },
+  situp: {
+    landmarks: ['leftShoulder', 'leftHip', 'leftKnee', 'rightShoulder', 'rightHip', 'rightKnee'],
+  },
+  run: {},
+};
+
 export default function PoseCamera({ exercise, onFrame, onError, onReset }) {
   return (
     <PoseCameraView
@@ -23,7 +32,7 @@ export default function PoseCamera({ exercise, onFrame, onError, onReset }) {
       frameLimit={15}
       callbackFps={15}
       skeleton={{
-        bodyParts: exercise === 'curl' ? ['leftArm', 'rightArm'] : ['leftLeg', 'rightLeg'],
+        ...skeletons[exercise],
         color: '#bbfa75',
       }}
       onCameraConfigured={onReset}

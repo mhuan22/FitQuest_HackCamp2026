@@ -4,6 +4,7 @@ import { exercises, jointVisible } from './repCounter';
 
 const wasm = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm';
 const model = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task';
+const fullBody = PoseLandmarker.POSE_CONNECTIONS.map(({ start, end }) => [start, end]);
 const layer = { position: 'absolute', width: '100%', height: '100%', inset: 0, objectFit: 'contain', transform: 'scaleX(-1)' };
 
 export function useCameraAccess() {
@@ -49,7 +50,7 @@ export default function PoseCamera({ exercise, onFrame, onError }) {
             canvas.width = width;
             canvas.height = height;
           }
-          drawPose(ctx, points, width, height, exercises[exercise].sides);
+          drawPose(ctx, points, width, height, exercises[exercise].sides ?? fullBody);
           onFrame(points, width, height, time);
         } catch {
           fail('Pose tracking stopped. Try starting the camera again.');
