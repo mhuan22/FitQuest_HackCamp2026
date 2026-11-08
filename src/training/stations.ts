@@ -54,3 +54,8 @@ export const STATIONS: Record<StationKey, Station> = {
 
 export const RUN_BLOCK_SECONDS = 30;
 export const XP_PER_UNIT = 10;
+export const FREE_RUN_IDLE_MS = 30_000;
+
+export function freeRunXp(durationMs: number) {
+  return Math.floor(durationMs * XP_PER_UNIT / (RUN_BLOCK_SECONDS * 1000));
+}

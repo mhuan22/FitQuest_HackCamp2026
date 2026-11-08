@@ -6,7 +6,7 @@ import { useAnimationFrame } from "./game/useAnimationFrame";
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { useProgress } from "./game/useProgress";
 import { DEFAULT_SAVE, currentStreak, xpProgress, characterLevel, characterXpProgress, consumeUltimate, daysUntilUltimate, MAX_ULTIMATE_STACKS, trainingDay, nextDemoTrainingDay, levelFromXp, levelProgress, STAT_INFO, type SaveData } from "./game/progression";
-import { RUN_BLOCK_SECONDS, STATIONS, XP_PER_UNIT, type CharacterAction, type StationKey } from "./training/stations";
+import { FREE_RUN_IDLE_MS, RUN_BLOCK_SECONDS, STATIONS, XP_PER_UNIT, freeRunXp, type CharacterAction, type StationKey } from "./training/stations";
 import WorkoutCamera from "./vision/WorkoutCamera";
 import { exercises } from "./vision/repCounter";
 import golemIdleA from "./assets/bosses/golem/idle-a.png";
@@ -562,7 +562,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
   const [modal, setModal] = useState<"station" | "boss" | "stats" | null>(null);
   const [selected, setSelected] = useState<StationKey>("curls");
   const [repTarget, setRepTarget] = useState(5);
-  const [runTarget, setRunTarget] = useState(RUN_BLOCK_SECONDS);
+  const [runTarget, setRunTarget] = useState<number | "free">(RUN_BLOCK_SECONDS);
   const [playerPos, setPlayerPos] = useState({ x: 50, y: 64 });
   const [moving, setMoving] = useState(false);
   const [worldFacing, setWorldFacing] = useState<"left" | "right" | "back">("left");
@@ -571,9 +571,11 @@ export default function App({ userId, username, initialSave, initialRevision = 0
   const [exercise, setExercise] = useState(false);
   const [progress, setProgress] = useState(0);
   const sessionProgress = useRef(0);
+  const freeRunDeadline = useRef<number | null>(null);
+  const [idleSeconds, setIdleSeconds] = useState(FREE_RUN_IDLE_MS / 1000);
   const [feedback, setFeedback] = useState("Complete the movement.");
   const [paused, setPaused] = useState(false);
-  const [reward, setReward] = useState<{ xp: number; leveled: boolean } | null>(null);
+  const [reward, setReward] = useState<{ xp: number; leveled: boolean; inactive?: boolean } | null>(null);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState("");
@@ -603,10 +605,11 @@ export default function App({ userId, username, initialSave, initialRevision = 0
   const activeStation = STATIONS[selected];
   const timed = activeStation.tracking === "run";
   const target = timed ? runTarget : repTarget;
-  const setTarget = timed ? setRunTarget : setRepTarget;
-  const goal = timed ? target * 1000 : target;
+  const freeRun = target === "free";
+  const goal = freeRun ? Infinity : timed ? target * 1000 : target;
   const shownProgress = timed ? Math.floor(progress / 1000) : progress;
-  const rewardUnits = timed ? Math.floor(shownProgress / RUN_BLOCK_SECONDS) : progress;
+  const xpEarned = freeRun ? freeRunXp(progress)
+    : (timed ? Math.floor(shownProgress / RUN_BLOCK_SECONDS) : progress) * XP_PER_UNIT;
   const selectedStat = activeStation.stat;
   const activeStatInfo = STAT_INFO[selectedStat];
   const daysToUltimate = daysUntilUltimate(save, demo ? demoDate : new Date());
@@ -706,6 +709,8 @@ export default function App({ userId, username, initialSave, initialRevision = 0
     setModal(null);
     sessionStartXp.current = activeXp;
     sessionProgress.current = 0;
+    freeRunDeadline.current = freeRun ? Date.now() + FREE_RUN_IDLE_MS : null;
+    setIdleSeconds(FREE_RUN_IDLE_MS / 1000);
     setProgress(0);
     setFeedback(exercises[activeStation.tracking].frame);
     setPaused(false);
@@ -714,21 +719,58 @@ export default function App({ userId, username, initialSave, initialRevision = 0
     setExercise(true);
   }
 
+  const completeFreeRun = useCallback((inactive: boolean) => {
+    if (freeRunDeadline.current === null) return;
+    freeRunDeadline.current = null;
+    const gained = freeRunXp(sessionProgress.current);
+    if (gained > 0) setSave(current => trainingDay(current, demo ? demoDate : new Date()));
+    setPaused(false);
+    setReward({ xp: gained, leveled: levelFromXp(sessionStartXp.current + gained) > levelFromXp(sessionStartXp.current), inactive });
+  }, [setSave, demo, demoDate]);
+
+  useEffect(() => {
+    if (!exercise || !freeRun || reward || saveBlocked || loggingOut) return;
+    let timeout: ReturnType<typeof setTimeout>;
+    function tick() {
+      if (freeRunDeadline.current === null) return;
+      const remaining = freeRunDeadline.current - Date.now();
+      if (remaining <= 0) {
+        completeFreeRun(true);
+        return;
+      }
+      setIdleSeconds(Math.ceil(remaining / 1000));
+      timeout = setTimeout(tick, remaining % 1000 || 1000);
+    }
+    tick();
+    return () => clearTimeout(timeout);
+  }, [exercise, freeRun, reward, saveBlocked, loggingOut, completeFreeRun]);
+
   const addProgress = useCallback((amount: number) => {
     if (saveBlocked || loggingOut || !exercise || paused || reward || !Number.isFinite(amount) || amount <= 0 || sessionProgress.current >= goal) return;
+    if (freeRun) {
+      if (freeRunDeadline.current === null) return;
+      const now = Date.now();
+      if (now >= freeRunDeadline.current) {
+        completeFreeRun(true);
+        return;
+      }
+      freeRunDeadline.current = now + FREE_RUN_IDLE_MS;
+      setIdleSeconds(FREE_RUN_IDLE_MS / 1000);
+    }
     const previous = sessionProgress.current;
     const next = Math.min(goal, previous + amount);
     sessionProgress.current = next;
     setProgress(timed ? Math.floor(next / 1000) * 1000 : next);
     const units = timed ? Math.floor(next / (RUN_BLOCK_SECONDS * 1000))-Math.floor(previous / (RUN_BLOCK_SECONDS * 1000)) : next-previous;
     if (units > 0 && next < goal) audio.play("rep");
-    if (units > 0) setSave(current => ({...current, [activeStatInfo.xpKey]:current[activeStatInfo.xpKey]+units*XP_PER_UNIT}));
+    const earned = freeRun ? freeRunXp(next) - freeRunXp(previous) : units * XP_PER_UNIT;
+    if (earned > 0) setSave(current => ({...current, [activeStatInfo.xpKey]:current[activeStatInfo.xpKey]+earned}));
     if (next === goal) {
-      const gained = (timed ? target / RUN_BLOCK_SECONDS : target) * XP_PER_UNIT;
+      const gained = (timed ? goal / (RUN_BLOCK_SECONDS * 1000) : goal) * XP_PER_UNIT;
       setSave(current => trainingDay(current, demo ? demoDate : new Date()));
       setReward({ xp: gained, leveled: levelFromXp(sessionStartXp.current + gained) > levelFromXp(sessionStartXp.current) });
     }
-  }, [goal, timed, activeStatInfo.xpKey, target, exercise, paused, reward, demo, demoDate, saveBlocked, loggingOut, audio]);
+  }, [goal, timed, freeRun, completeFreeRun, activeStatInfo.xpKey, exercise, paused, reward, demo, demoDate, saveBlocked, loggingOut, audio, setSave]);
 
   const progressHandler = useRef(addProgress);
   progressHandler.current = addProgress;
@@ -742,6 +784,10 @@ export default function App({ userId, username, initialSave, initialRevision = 0
   }, []);
 
   function finishExercise() {
+    if (freeRun && !reward) {
+      completeFreeRun(false);
+      return;
+    }
     setCameraEnabled(false);
     setCameraReady(false);
     setExercise(false);
@@ -1258,12 +1304,14 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                 <button
                   key={value}
                   className={target === value ? "selected" : ""}
-                  onClick={() => setTarget(value)}
+                  onClick={() => timed ? setRunTarget(value) : setRepTarget(value)}
                 >
                   {value}{timed ? "s" : ""}
                 </button>
               ))}
+              {timed && <button className={`free-run-target ${freeRun ? "selected" : ""}`} onClick={() => setRunTarget("free")}>Free Run</button>}
             </div>
+            {freeRun && <p>Run without a time target. Finish anytime, or the session ends after 30 seconds of inactivity.</p>}
             <div className="dialog-actions">
               <button className="pixel-button primary" onClick={startExercise}>
                 BEGIN
@@ -1492,7 +1540,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
           <div className="exercise-top">
             <div>
               <span>TRAINING SESSION</span>
-              <strong>{activeStation.exercise}</strong>
+              <strong>{freeRun ? "Treadmill Free Run" : activeStation.exercise}</strong>
             </div>
             <div className="session-stat">
               {activeStatInfo.label.toUpperCase()} • LV {activeLevel}
@@ -1552,16 +1600,18 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                 <span>{timed ? "ACTIVE SECONDS" : "REPS"}</span>
                 <div className="rep-count">
                   {shownProgress}
-                  <small>/ {target}</small>
+                  {!freeRun && <small>/ {target}</small>}
                 </div>
                 <div className={`feedback ${feedback === "Rep counted!" ? "success" : ""}`}>
                   {paused ? "Training paused." : feedback}
                 </div>
-                <div className="session-progress">
-                  <i style={{ width: `${(progress / goal) * 100}%` }} />
-                </div>
+                {freeRun ? !reward && <p className="free-run-countdown" role="timer">Inactivity timeout in {idleSeconds}s</p> : (
+                  <div className="session-progress">
+                    <i style={{ width: `${(progress / goal) * 100}%` }} />
+                  </div>
+                )}
                 <div className="xp-preview">
-                  +{rewardUnits * XP_PER_UNIT} {activeStatInfo.label} XP
+                  +{xpEarned} {activeStatInfo.label} XP
                 </div>
               </Frame>
             </div>
@@ -1604,7 +1654,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                   <i />
                 </div>
                 <p>
-                  {reward.leveled
+                  {reward.inactive ? "Free Run ended after 30 seconds of inactivity." : reward.leveled
                     ? "Your hard work made you stronger."
                     : "Progress saved. Keep training!"}
                 </p>

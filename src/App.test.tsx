@@ -65,6 +65,41 @@ describe("game integration", () => {
     expect((mocks.save.mock.calls.at(-1)![0] as SaveData).healthXp).toBe(10);
   });
 
+  it("lets a Free Run exceed the fixed targets and saves prorated XP on manual finish", async () => {
+    await mount(defaults);
+    await enterGym();
+    await act(async () => host.querySelector<HTMLButtonElement>(".treadmill-station")!.click());
+    await advance(1000);
+    await click("Free Run"); await click("BEGIN"); await click("ENABLE CAMERA");
+    await act(async () => mocks.cameraProgress!(95000));
+    expect(host.textContent).not.toContain("SESSION COMPLETE");
+    await click("FINISH");
+    expect(host.querySelector(".xp-earned")?.textContent).toContain("+31 VITALITY XP");
+    await act(async () => mocks.cameraProgress!(30000));
+    await advance(30000);
+    const saved = mocks.save.mock.calls.at(-1)![0] as SaveData;
+    expect(saved.healthXp).toBe(31);
+    expect(saved.streak).toBe(1);
+  });
+
+  it("resets the Free Run countdown on movement and ends after 30 idle seconds", async () => {
+    await mount(defaults);
+    await enterGym();
+    await act(async () => host.querySelector<HTMLButtonElement>(".treadmill-station")!.click());
+    await advance(1000);
+    await click("Free Run"); await click("BEGIN"); await click("ENABLE CAMERA");
+    await advance(10000);
+    expect(host.querySelector('[role="timer"]')?.textContent).toContain("20s");
+    await act(async () => mocks.cameraProgress!(8000));
+    expect(host.querySelector('[role="timer"]')?.textContent).toContain("30s");
+    await advance(29999);
+    expect(host.querySelector('[role="timer"]')?.textContent).toContain("1s");
+    await advance(1);
+    expect(host.querySelector(".xp-earned")?.textContent).toContain("+2 VITALITY XP");
+    expect(host.textContent).toContain("Free Run ended after 30 seconds of inactivity.");
+    expect(host.querySelector('[data-testid="camera"]')).toBeNull();
+  });
+
   it("keeps demo progression local and restores it after remounting", async () => {
     await mount();
     await click("Reach Level 5");
