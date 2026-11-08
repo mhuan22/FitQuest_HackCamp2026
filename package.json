@@ -1,0 +1,26 @@
+{
+  "name": "hackcamp-exercise-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "web": "expo start --web --localhost",
+    "ios": "expo run:ios --device",
+    "android": "expo run:android"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "~57.0.18",
+    "@mediapipe/tasks-vision": "0.10.32",
+    "effect": "^3.21.4",
+    "expo": "~57.0.32",
+    "expo-camera": "~57.0.6",
+    "expo-mediapipe-pose": "0.3.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-svg": "^15.15.4",
+    "react-native-web": "^0.21.4"
+  }
+}
