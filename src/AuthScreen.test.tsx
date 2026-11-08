@@ -111,3 +111,21 @@ describe("account forms", () => {
     expect(host.textContent).toContain("If an account uses that email");
   });
 });
+
+describe("signup configuration", () => {
+  it("handles immediate signup sessions without asking for an email confirmation", async () => {
+    mocks.signUp.mockResolvedValue({ data: { user: { identities: [{ id: "new" }] }, session: { access_token: "test" } }, error: null });
+    await click("SIGN UP");
+    fill("username", "NewPlayer"); fill("email", "new@example.test"); fill("password", "password123");
+    await submit();
+    expect(host.textContent).toContain("Account created");
+    expect(host.textContent).not.toContain("Check your email");
+  });
+  it("explains email throttling instead of reporting a connection failure", async () => {
+    mocks.signUp.mockResolvedValue({ data: { user: null }, error: { code: "over_email_send_rate_limit", message: "email rate limit exceeded" } });
+    await click("SIGN UP");
+    fill("username", "NewPlayer"); fill("email", "new@example.test"); fill("password", "password123");
+    await submit();
+    expect(host.textContent).toContain("Email sending limit reached");
+  });
+});

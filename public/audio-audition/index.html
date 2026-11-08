@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FitQuest · Audio auditions</title>
+<style>
+:root{font-family:system-ui,sans-serif;color:#f5ead4;background:#11161a;color-scheme:dark}body{margin:0}*{box-sizing:border-box}main{max-width:1120px;margin:auto;padding:36px 24px 60px}a{color:#8cd5dc}header{border-bottom:1px solid #38413c;padding-bottom:24px;margin-bottom:24px}.eyebrow{font-size:11px;letter-spacing:.22em;color:#f0bd6b}h1{font-size:clamp(28px,5vw,46px);margin:12px 0}p{line-height:1.6;color:#c1c4bc;max-width:760px}.toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:20px 0}button{font:inherit;cursor:pointer;border:1px solid #65725e;border-radius:6px;background:#29372e;color:#e8eddc;padding:10px 14px}button:hover{background:#394c3f}button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid #f5c775;outline-offset:4px}button.primary{background:#e6b45e;color:#161b17;border-color:#f3d18d;font-weight:700}button[aria-pressed=true]{border-color:#f4cb83;background:#5c492e}label{display:flex;gap:8px;align-items:center;font-size:13px}input{accent-color:#e6b45e}#now{min-height:24px;color:#f3ca87}nav{display:flex;gap:8px;flex-wrap:wrap;position:sticky;top:0;background:#11161af2;padding:12px 0;z-index:1}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}.card{border:1px solid #39473f;border-radius:10px;background:#1b2522;padding:18px}.card.is-selected{border-color:#e3b567}.group{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#94b5aa}.card h2{font-size:20px;margin:9px 0 5px}.role{font-size:13px;color:#e1c894;margin-bottom:12px}audio{display:block;width:100%;margin:10px 0}.meta{font-size:11px;line-height:1.7;color:#aab5af;word-break:break-word}.pick{font-size:12px;margin-top:14px;padding:7px 10px}.selected-panel{margin:28px 0;padding:18px;border:1px solid #445347;border-radius:8px}.selected-panel h2{font-size:17px;margin:0 0 12px}#selected{white-space:pre-wrap;font:12px/1.7 ui-monospace,monospace;color:#d5d7c6}footer{margin-top:30px;border-top:1px solid #38413c;padding-top:20px;font-size:12px;line-height:1.9;color:#aab5af}footer a{margin-right:10px}.note{font-size:12px}.tag{display:inline-block;background:#344536;color:#c5d4b7;padding:3px 7px;border-radius:4px;font-size:10px;margin-left:7px}#error{color:#ffad95}a.back{font-size:13px;float:right}@media(max-width:500px){main{padding:24px 15px}.grid{grid-template-columns:1fr}.toolbar{align-items:flex-start}a.back{float:none;display:block;margin-bottom:18px}}
+</style>
+</head>
+<body><main>
+<header><a class="back" href="../../">← Back to game</a><div class="eyebrow">FITQUEST / SOUND ROOM</div><h1>Find the sound of the adventure.</h1>
+<p>Compare background loops, menu feedback, combat impacts and NES reward jingles. Nothing plays until you press play. The game’s soundtrack has not been changed.</p>
+<p class="note">Music previews are 16-second mono excerpts with matched levels and short fades. The original tracks are stereo loops; these excerpts do not demonstrate seamless looping. Suggested roles are provisional, based on track names—not a completed listening review.</p>
+<div class="toolbar"><button class="primary" id="guided">▶ Play guided comparison</button><button id="stop">■ Stop all</button><label for="volume">Volume <input id="volume" type="range" min="0" max="0.7" value="0.25" step="0.01"><output id="volume-value">25%</output></label></div>
+<div id="now" role="status" aria-live="polite">Start with Homestead → On and Up → Encounter → Darkwood, then compare the effects.</div><div id="error" role="alert"></div>
+</header>
+<nav aria-label="Filter samples" id="filters"></nav>
+<section class="grid" id="grid" aria-label="Audio samples"></section>
+<section class="selected-panel"><h2>Your shortlist</h2><p class="note">Mark sounds you like. Selections stay in this browser and do not change your game save.</p><div id="selected">No samples selected yet.</div></section>
+<footer>All included audio is CC0. Music by <a href="https://dancramp.itch.io/8-bit-retro-rpg-music-asset-pack">dancramp</a>; effects and jingles by <a href="https://kenney.nl/assets">Kenney</a>.<br>
+Original licenses: <a href="licenses/music.txt">Music</a><a href="licenses/interface.txt">Interface</a><a href="licenses/impact.txt">Impacts</a><a href="licenses/jingles.txt">Jingles</a><br>Source filenames are shown on every card. Inspect originals before making final soundtrack choices.</footer>
+<audio id="guided-player" preload="none"></audio>
+</main>
+<script type="module">
+const $=id=>document.getElementById(id);
+const items=await fetch('./manifest.json').then(r=>{if(!r.ok)throw Error('Unable to load audio manifest');return r.json()}).catch(e=>{$('error').textContent=e.message;return []});
+let filter='All',run=0,finishStep=null;const players=new Map(),guidedPlayer=$('guided-player');
+let picked=new Set();try{picked=new Set(JSON.parse(localStorage.getItem('fitquest-audio-shortlist')||'[]'))}catch{}
+function status(text){$('now').textContent=text}
+function stopGuided(){run++;if(finishStep){finishStep();finishStep=null}guidedPlayer.pause();$('guided').textContent='▶ Play guided comparison'}
+function stopAll(){stopGuided();players.forEach(p=>p.pause());status('Stopped. Choose any sample to compare.')}
+function updatePicked(){const chosen=items.filter(item=>picked.has(item.id));$('selected').textContent=chosen.length?chosen.map(item=>`${item.group} / ${item.name} — ${item.source}`).join('\n'):'No samples selected yet.';try{localStorage.setItem('fitquest-audio-shortlist',JSON.stringify([...picked]))}catch{}}
+function render(){
+ $('grid').replaceChildren();
+ for(const item of items.filter(i=>filter==='All'||filter==='Proposed roles'&&i.proposed||i.group===filter)){
+  const card=document.createElement('article');card.className='card'+(picked.has(item.id)?' is-selected':'');
+  const group=document.createElement('div');group.className='group';group.textContent=item.group;
+  const title=document.createElement('h2');title.textContent=item.name;
+  if(item.proposed){const tag=document.createElement('span');tag.className='tag';tag.textContent='TRY FIRST';title.append(tag)}
+  const role=document.createElement('div');role.className='role';role.textContent=item.role;
+  const player=document.createElement('audio');player.controls=true;player.preload='none';player.src=item.src;player.volume=+$('volume').value;player.setAttribute('aria-label',`${item.group}: ${item.name}`);players.set(item.id,player);
+  player.addEventListener('play',()=>{stopGuided();players.forEach(other=>{if(other!==player)other.pause()});status(`Playing ${item.name} · ${item.role}`);$('error').textContent=''});
+  player.addEventListener('error',()=>{$('error').textContent=`Could not play ${item.name}. Try a browser that supports Ogg Vorbis, such as Chrome or Firefox.`});
+  const meta=document.createElement('div');meta.className='meta';meta.textContent=`${item.source} · ${item.author} · ${item.duration}s preview${item.originalDuration?` / ${item.originalDuration}s original`:''}`;
+  const button=document.createElement('button');button.className='pick';button.setAttribute('aria-pressed',String(picked.has(item.id)));button.textContent=picked.has(item.id)?'✓ On shortlist':'+ Add to shortlist';
+  button.onclick=()=>{picked.has(item.id)?picked.delete(item.id):picked.add(item.id);button.setAttribute('aria-pressed',String(picked.has(item.id)));button.textContent=picked.has(item.id)?'✓ On shortlist':'+ Add to shortlist';card.classList.toggle('is-selected',picked.has(item.id));updatePicked()};
+  card.append(group,title,role,player,meta,button);$('grid').append(card);
+ }
+}
+for(const name of ['All','Proposed roles','Music','Interface','Combat','Rewards']){const button=document.createElement('button');button.textContent=name;button.setAttribute('aria-pressed',String(name===filter));button.onclick=()=>{stopAll();players.clear();filter=name;for(const sibling of $('filters').children)sibling.setAttribute('aria-pressed',String(sibling===button));render()};$('filters').append(button)}
+$('stop').onclick=stopAll;
+$('volume').oninput=()=>{const volume=+$('volume').value;players.forEach(p=>p.volume=volume);guidedPlayer.volume=volume;$('volume-value').textContent=`${Math.round(volume*100)}%`};
+$('guided').onclick=async()=>{
+ stopAll();const token=run;$('guided').textContent='Playing comparison…';$('error').textContent='';
+ const ids=['music-02','music-06','music-09','music-12','interface-click_001','interface-confirmation_001','interface-confirmation_002','impact-impactPunch_medium_000','impact-impactMetal_light_000','impact-impactPunch_heavy_000','jingles-jingles_NES00','jingles-jingles_NES03','jingles-jingles_NES08'];
+ for(const id of ids){if(token!==run)return;const item=items.find(i=>i.id===id);if(!item)continue;guidedPlayer.src=item.src;guidedPlayer.volume=+$('volume').value;status(`Comparing: ${item.name} · ${item.role}`);
+  try{await guidedPlayer.play()}catch{if(token!==run)return;$('error').textContent=`Playback failed for ${item.name}; try its individual player.`;stopGuided();return}
+  if(token!==run)return
+  await new Promise(resolve=>{let timer;const finish=()=>{clearTimeout(timer);guidedPlayer.removeEventListener('ended',finish);finishStep=null;resolve()};finishStep=finish;guidedPlayer.addEventListener('ended',finish,{once:true});timer=setTimeout(finish,Math.min(item.group==='Music'?8000:6500,item.duration*1000+100))});
+  if(token!==run)return;
+  guidedPlayer.pause();
+ }
+ $('guided').textContent='▶ Play guided comparison';status('Comparison complete. Use the individual players and shortlist your favorites.');
+};
+document.addEventListener('visibilitychange',()=>{if(document.hidden)stopAll()});
+window.addEventListener('pagehide',stopAll);
+render();updatePicked();
+</script></body></html>

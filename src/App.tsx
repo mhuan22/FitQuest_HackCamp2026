@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { levelFromXp, levelProgress, STAT_INFO, type SaveData } from "./game/progression";
+import { BOSS_REQUIREMENTS, bossLockReason, raiseDemoLevel, unlockDemoBoss, type BossKey } from "./game/bossAccess";
+import { UltimateEffect } from "./UltimateEffect";
+import { ULTIMATE } from "./game/ultimate";
+import { useAnimationFrame } from "./game/useAnimationFrame";
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { useProgress } from "./game/useProgress";
+import { DEFAULT_SAVE, currentStreak, xpProgress, characterLevel, characterXpProgress, isUltimateUnlocked, ULTIMATE_UNLOCK_LEVEL, trainingDay, nextDemoTrainingDay, levelFromXp, levelProgress, STAT_INFO, type SaveData } from "./game/progression";
 import { RUN_BLOCK_SECONDS, STATIONS, XP_PER_UNIT, type CharacterAction, type StationKey } from "./training/stations";
 import WorkoutCamera from "./vision/WorkoutCamera";
 import { exercises } from "./vision/repCounter";
@@ -36,30 +40,29 @@ import modelBack6A from "./assets/characters/idle/back/model-06-a.png";
 import modelBack6B from "./assets/characters/idle/back/model-06-b.png";
 
 type Scene = "base" | "gym" | "battle";
-type BossKey = "slime" | "golem" | "owl" | "shellback";
 const BOSSES = {
   slime: {
     name: "TRAINING SLIME",
-    hp: 85,
-    attack: 14,
+    hp: 50,
+    attack: 8,
     intro: "The Training Slime jiggles into your path!",
   },
   golem: {
     name: "STONE GOLEM",
-    hp: 150,
-    attack: 16,
+    hp: 100,
+    attack: 12,
     intro: "The Stone Golem awakens and blocks your path!",
   },
   owl: {
     name: "FROST OWL",
-    hp: 220,
-    attack: 30,
+    hp: 90,
+    attack: 11,
     intro: "The Frost Owl descends in a storm of crystal feathers!",
   },
   shellback: {
     name: "ANCIENT SHELLBACK",
-    hp: 300,
-    attack: 36,
+    hp: 120,
+    attack: 10,
     intro: "The Ancient Shellback rises from the mire for the final trial!",
   },
 } satisfies Record<BossKey, { name: string; hp: number; attack: number; intro: string }>;
@@ -270,25 +273,24 @@ const SHELLBACK_IMPACT_FRAMES = Array.from(
     ],
 );
 
-function useAnimationFrame(active: boolean, interval: number, frameCount = 2, loop = true) {
-  const [frame, setFrame] = useState(0);
-  useEffect(() => {
-    if (!active) {
-      setFrame(0);
-      return;
-    }
-    setFrame(0);
-    const timer = window.setInterval(
-      () =>
-        setFrame((current) =>
-          loop ? (current + 1) % frameCount : Math.min(current + 1, frameCount - 1),
-        ),
-      interval,
-    );
-    return () => window.clearInterval(timer);
-  }, [active, frameCount, interval, loop]);
-  return frame;
+const PLAYER_ATTACK_MS = 800;
+const WALK_MS = 900;
+
+function bossAttackTiming(boss: BossKey, count: number) {
+  const pattern = boss === "owl" ? (count + 1) % 2 : (count + 2) % 3;
+  const frames = boss === "slime" ? SLIME_ATTACK_PATTERNS[pattern]
+    : boss === "golem" ? [GOLEM_ATTACK_FRAMES, GOLEM_THROW_FRAMES, GOLEM_BASH_FRAMES][pattern]
+    : boss === "owl" ? [OWL_ATTACK_FRAMES, OWL_SWOOP_FRAMES][pattern]
+    : [SHELLBACK_ROLL_FRAMES, SHELLBACK_SLAM_FRAMES, SHELLBACK_IMPACT_FRAMES][pattern];
+  const interval = boss === "slime" ? 105 : boss === "golem" ? 115
+    : boss === "owl" ? (pattern === 0 ? 95 : 90) : (pattern === 2 ? 86 : 78);
+  // Hit at the strike pose; retain the remaining frames for recovery.
+  const impactFrame = boss === "slime" ? [4, 2, 3][pattern]
+    : boss === "golem" ? [3, 4, 3][pattern]
+    : boss === "owl" ? [4, 6][pattern] : [4, 5, 3][pattern];
+  return { duration: frames.length * interval, impact: impactFrame * interval };
 }
+
 
 function SlimeSprite({
   className = "",
@@ -469,9 +471,10 @@ function Character({
   const frames = levels[skin % levels.length];
   const frame = useAnimationFrame(
     action === "idle" || action === "walk" || action === "attack",
-    action === "attack" ? 100 : action === "walk" ? 220 : 520,
+    action === "attack" ? PLAYER_ATTACK_MS / frames.length : action === "walk" ? 180 : 520,
     frames.length,
     action !== "attack",
+    `${action}:${facing}:${skin}`,
   );
   return (
     <img
@@ -488,7 +491,7 @@ function StatBar({ label, xp }: { label: string; xp: number }) {
     <div className="stat-row">
       <span>{label}</span>
       <strong>LV {level}</strong>
-      <div className="xp-track" aria-label={`${label} experience ${levelProgress(xp)} of 100`}>
+      <div className="xp-track" aria-label={`${label} experience ${xpProgress(xp).earned} of ${xpProgress(xp).required}`}>
         <i style={{ width: `${levelProgress(xp)}%` }} />
       </div>
     </div>
@@ -523,10 +526,37 @@ type GameProps = {
 };
 
 export default function App({ userId, username, initialSave, initialRevision = 0, onLogout, onReload, accountError }: GameProps) {
-  const { save, setSave, status: saveStatus, error: saveError, blocked: saveBlocked, retry } = useProgress(userId, initialSave, initialRevision, CHARACTER_MODELS.length);
+  const demo = !userId && (import.meta.env.DEV || new URLSearchParams(location.search).has("demo"));
+  const storageKey = demo ? "ironvale-demo" : "ironvale-save";
+  const sessionStartXp = useRef(0);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const turnLocked = useRef(false);
+  const travelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function later(callback: () => void, ms: number) { timers.current.push(setTimeout(callback, ms)); }
+  function clearTimers() { if (travelTimer.current !== null) clearTimeout(travelTimer.current); timers.current.forEach(clearTimeout); timers.current = []; turnLocked.current = false; }
+  useEffect(() => () => clearTimers(), []);
+  const [demoDate, setDemoDate] = useState(() => {
+    const today = new Date();
+    if (!demo) return today;
+    try {
+      const stored = localStorage.getItem("ironvale-demo-date");
+      if (stored) {
+        const date = new Date(stored);
+        if (Number.isFinite(date.getTime())) return date;
+      }
+      // Older demo saves recorded training days without recording the test clock.
+      const previous = JSON.parse(localStorage.getItem("ironvale-demo") || "null");
+      const last = new Date(`${previous?.lastTrainingDate}T12:00:00`);
+      return last > today ? last : today;
+    } catch { return today; }
+  });
+  useEffect(() => {
+    if (demo) { try { localStorage.setItem("ironvale-demo-date", demoDate.toISOString()); } catch { /* Gameplay saves report storage failures separately. */ } }
+  }, [demo, demoDate]);
+  const { save, setSave, status: saveStatus, error: saveError, blocked: saveBlocked, retry, discardRecovery } = useProgress(userId, initialSave, initialRevision, storageKey);
   const [loggingOut, setLoggingOut] = useState(false);
   const [scene, setScene] = useState<Scene>("base");
-  const [modal, setModal] = useState<"station" | "boss" | "wardrobe" | "stats" | null>(null);
+  const [modal, setModal] = useState<"station" | "boss" | "stats" | null>(null);
   const [selected, setSelected] = useState<StationKey>("curls");
   const [repTarget, setRepTarget] = useState(5);
   const [runTarget, setRunTarget] = useState(RUN_BLOCK_SECONDS);
@@ -547,19 +577,22 @@ export default function App({ userId, username, initialSave, initialRevision = 0
   const [battle, setBattle] = useState({
     boss: "slime" as BossKey,
     playerHp: 100,
-    bossHp: 85,
+    bossHp: 50,
     charge: 0,
     turn: 0,
     message: "The Training Slime jiggles into your path!",
     action: "idle" as "idle" | "attack" | "guard" | "hit",
     bossAction: "idle" as "idle" | "attack" | "hit",
+    ultimate: false,
     bossAttackCount: 0,
     busy: false,
+    opening: false,
     heavyReady: false,
     guarding: false,
     result: null as "victory" | "defeat" | null,
   });
 
+  const skin = Math.min(5, Math.floor((characterLevel(save)-1)/2));
   const strength = levelFromXp(save.strengthXp);
   const agility = levelFromXp(save.agilityXp);
   const defense = levelFromXp(save.defenseXp);
@@ -574,26 +607,39 @@ export default function App({ userId, username, initialSave, initialRevision = 0
   const rewardUnits = timed ? Math.floor(shownProgress / RUN_BLOCK_SECONDS) : progress;
   const selectedStat = activeStation.stat;
   const activeStatInfo = STAT_INFO[selectedStat];
+  const ultimateUnlocked = isUltimateUnlocked(save);
+  const ultimateStatus = !ultimateUnlocked
+    ? `Locked: reach Character Level ${ULTIMATE_UNLOCK_LEVEL} (current: ${characterLevel(save)})`
+    : battle.charge < 3
+      ? `Unlocked · ${battle.charge}/3 charges — Attack or Guard to charge`
+      : battle.busy ? "Ready after this animation finishes" : "Ready · deals double attack damage";
+  const characterXp = characterXpProgress(save);
+  const streakDays = currentStreak(save, demo ? demoDate : new Date());
   const activeXp = save[activeStatInfo.xpKey];
   const activeLevel = levelFromXp(activeXp);
-  const golemUnlocked = save.rewards.includes("Slime Band");
-  const owlUnlocked = save.rewards.includes("Golem Crest");
-  const shellbackUnlocked = save.rewards.includes("Frost Feather");
-  const featuredBoss: BossKey = !golemUnlocked
+  const golemUnlocked = !bossLockReason(save, "golem");
+  const owlUnlocked = !bossLockReason(save, "owl");
+  const shellbackUnlocked = !bossLockReason(save, "shellback");
+  const featuredBoss: BossKey = !save.rewards.includes("Slime Band")
     ? "slime"
-    : !owlUnlocked
+    : !save.rewards.includes("Golem Crest")
       ? "golem"
-      : !shellbackUnlocked
+      : !save.rewards.includes("Frost Feather")
         ? "owl"
         : "shellback";
   const activeBoss = BOSSES[battle.boss];
+  const nextBoss = ({ slime: "golem", golem: "owl", owl: "shellback", shellback: null } as const)[battle.boss];
+  const nextBossLocked = nextBoss ? bossLockReason(save, nextBoss) : "";
   const golemAttackPattern = (battle.bossAttackCount + 2) % 3;
   const owlAttackPattern = (battle.bossAttackCount + 1) % 2;
   const shellbackAttackPattern = (battle.bossAttackCount + 2) % 3;
 
+
   function changeScene(next: Scene) {
+    if (travelTimer.current !== null) clearTimeout(travelTimer.current);
+    setMoving(false);
     setTransition(true);
-    setTimeout(() => {
+    later(() => {
       setScene(next);
       setModal(null);
       setWorldFacing("left");
@@ -603,21 +649,24 @@ export default function App({ userId, username, initialSave, initialRevision = 0
           ? "Choose a station, or return to the base."
           : "Choose a destination to begin your training.",
       );
-      setTimeout(() => setTransition(false), 250);
+      later(() => setTransition(false), 250);
     }, 250);
   }
 
   function travel(x: number, y: number, onArrive: () => void, travelHint: string) {
+    if (moving && x === playerPos.x && y === playerPos.y) return;
+    if (travelTimer.current !== null) clearTimeout(travelTimer.current);
     setHint(travelHint);
     if (scene !== "battle") {
       setWorldFacing(y < playerPos.y ? "back" : x > playerPos.x ? "right" : "left");
     }
     setMoving(true);
     setPlayerPos({ x, y });
-    setTimeout(() => {
+    travelTimer.current = setTimeout(() => {
+      travelTimer.current = null;
       setMoving(false);
       onArrive();
-    }, 900);
+    }, x === playerPos.x && y === playerPos.y ? 0 : WALK_MS);
   }
 
   function openStation(station: StationKey) {
@@ -640,6 +689,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
 
   function startExercise() {
     setModal(null);
+    sessionStartXp.current = activeXp;
     sessionProgress.current = 0;
     setProgress(0);
     setFeedback(exercises[activeStation.tracking].frame);
@@ -650,18 +700,23 @@ export default function App({ userId, username, initialSave, initialRevision = 0
   }
 
   const addProgress = useCallback((amount: number) => {
-    if (sessionProgress.current >= goal) return;
-    const next = Math.min(goal, sessionProgress.current + amount);
+    if (saveBlocked || loggingOut || !exercise || paused || reward || !Number.isFinite(amount) || amount <= 0 || sessionProgress.current >= goal) return;
+    const previous = sessionProgress.current;
+    const next = Math.min(goal, previous + amount);
     sessionProgress.current = next;
     setProgress(timed ? Math.floor(next / 1000) * 1000 : next);
+    const units = timed ? Math.floor(next / (RUN_BLOCK_SECONDS * 1000))-Math.floor(previous / (RUN_BLOCK_SECONDS * 1000)) : next-previous;
+    if (units > 0) setSave(current => ({...current, [activeStatInfo.xpKey]:current[activeStatInfo.xpKey]+units*XP_PER_UNIT}));
     if (next === goal) {
-      const key = activeStatInfo.xpKey;
       const gained = (timed ? target / RUN_BLOCK_SECONDS : target) * XP_PER_UNIT;
-      setSave((current) => ({ ...current, [key]: current[key] + gained }));
-      setReward({ xp: gained, leveled: levelFromXp(activeXp + gained) > levelFromXp(activeXp) });
+      setSave(current => trainingDay(current, demo ? demoDate : new Date()));
+      setReward({ xp: gained, leveled: levelFromXp(sessionStartXp.current + gained) > levelFromXp(sessionStartXp.current) });
     }
-  }, [goal, timed, activeStatInfo.xpKey, target, activeXp]);
+  }, [goal, timed, activeStatInfo.xpKey, target, exercise, paused, reward, demo, demoDate, saveBlocked, loggingOut]);
 
+  const progressHandler = useRef(addProgress);
+  progressHandler.current = addProgress;
+  const stableProgress = useCallback((amount: number) => progressHandler.current(amount), []);
   const onCameraReady = useCallback(() => setCameraReady(true), []);
   const onCameraError = useCallback((message: string) => {
     setCameraEnabled(false);
@@ -675,13 +730,12 @@ export default function App({ userId, username, initialSave, initialRevision = 0
     setCameraReady(false);
     setExercise(false);
     setReward(null);
-    setHint(reward ? "Training complete." : "Training ended.");
+    setHint(reward ? "Training complete. Your progress has been saved." : "Training ended.");
   }
 
   function beginBattle(boss: BossKey = "slime") {
-    if (boss === "golem" && !golemUnlocked) return;
-    if (boss === "owl" && !owlUnlocked) return;
-    if (boss === "shellback" && !shellbackUnlocked) return;
+    const locked = bossLockReason(save, boss);
+    if (locked) { setHint(locked); return; }
     const bossConfig = BOSSES[boss];
     setBattle({
       boss,
@@ -692,12 +746,15 @@ export default function App({ userId, username, initialSave, initialRevision = 0
       message: bossConfig.intro,
       action: "idle",
       bossAction: "idle",
-      bossAttackCount: 0,
+      ultimate: false,
+    bossAttackCount: 0,
       busy: false,
-      heavyReady: false,
+      opening: false,
+    heavyReady: false,
       guarding: false,
       result: null,
     });
+    turnLocked.current = false;
     changeScene("battle");
   }
 
@@ -717,6 +774,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
         ? current.rewards
         : [...current.rewards, rewardName],
     }));
+    clearTimers();
     setBattle((current) => ({
       ...current,
       bossHp: 0,
@@ -728,51 +786,64 @@ export default function App({ userId, username, initialSave, initialRevision = 0
   }
 
   function battleTurn(move: "attack" | "guard" | "special") {
-    if (battle.busy || battle.result) return;
-    if (move === "special" && battle.charge < 3) {
-      setBattle((b) => ({ ...b, message: "Special needs three charge segments." }));
+    if (turnLocked.current || battle.busy || battle.result) return;
+    if (move === "special" && (battle.charge < 3 || !ultimateUnlocked)) {
+      setBattle((b) => ({ ...b, message: ultimateStatus }));
       return;
     }
 
-    const baseDamage = 10 + strength * 3;
-    const damage =
+    turnLocked.current = true;
+    const isUltimate = move === "special";
+    const attackDuration = isUltimate ? ULTIMATE.duration : PLAYER_ATTACK_MS;
+    const armor = battle.boss === "golem" ? 6 : battle.boss === "owl" ? 3 : battle.boss === "shellback" ? 4 : 0;
+    const baseDamage = Math.max(1, 10 + strength * 2 - armor);
+    const rawDamage =
       move === "special"
         ? baseDamage * 2
         : move === "guard"
           ? 0
-          : baseDamage + Math.floor(Math.random() * 5);
+          : baseDamage;
+    const damage = Math.floor(rawDamage * (battle.opening ? 1.5 : 1));
     const bossHp = Math.max(0, battle.bossHp - damage);
     setBattle((b) => ({
       ...b,
       busy: true,
-      action: move === "guard" ? "guard" : "attack",
+      ultimate: isUltimate,
+      action: move === "guard" ? "guard" : isUltimate ? "idle" : "attack",
       bossAction: "idle",
+      opening: false,
       guarding: move === "guard",
       charge: move === "special" ? 0 : Math.min(3, b.charge + 1),
       message:
         move === "guard"
           ? "You brace for the next attack."
           : move === "special"
-            ? "Power Rush! Rook gathers their strength..."
+            ? "Ultimate! Rook gathers their strength..."
             : "Rook draws their blade. Attack incoming!",
     }));
 
+    if (isUltimate) {
+      later(() => setBattle(b => ({ ...b, action: "attack", message: "DAWNBREAKER!" })), ULTIMATE.windup);
+      later(() => setBattle(b => ({ ...b, ultimate: false, action: "idle" })), ULTIMATE.duration);
+    }
+
     if (damage > 0) {
-      setTimeout(() => {
+      later(() => {
         setBattle((b) => ({
           ...b,
           bossHp,
           bossAction: "hit",
           message:
             move === "special"
-              ? `Power Rush hits for ${damage}!`
+              ? `Ultimate hits for ${damage}!`
               : `Your strike deals ${damage} damage!`,
         }));
-      }, 300);
+      }, isUltimate ? ULTIMATE.impact : 300);
     }
 
     if (bossHp <= 0) {
-      setTimeout(() => {
+      later(() => {
+        turnLocked.current = false;
         const rewardName =
           battle.boss === "slime"
             ? "Slime Band"
@@ -789,6 +860,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
           ...b,
           busy: false,
           result: "victory",
+          action: "idle",
           message:
             b.boss === "slime"
               ? "The Training Slime dissolves into sparkles!"
@@ -798,14 +870,21 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                   ? "The Frost Owl folds its wings and yields the frozen throne."
                   : "The Ancient Shellback bows. Every arena has been conquered.",
         }));
-      }, 740);
+      }, attackDuration);
       return;
     }
 
-    setTimeout(
+    later(
       () => {
         const nextTurn = battle.turn + 1;
-        if (!battle.heavyReady && nextTurn % 3 === 2) {
+        turnLocked.current = false;
+        if (battle.boss === "golem" && battle.heavyReady && damage >= 12) {
+          setBattle(b => ({...b, busy:false, turn:nextTurn, heavyReady:false, action:"idle", bossAction:"hit", message:"Shield broken! The slam is canceled."})); return;
+        }
+        if (battle.boss === "shellback" && move === "guard") {
+          setBattle(b => ({...b, busy:false, turn:nextTurn, action:"idle", message:"You build charge safely. Shellback counters only damaging moves."})); return;
+        }
+        if (battle.boss !== "shellback" && !battle.heavyReady && nextTurn % 3 === 2) {
           setBattle((b) => ({
             ...b,
             busy: false,
@@ -817,46 +896,39 @@ export default function App({ userId, username, initialSave, initialRevision = 0
               battle.boss === "slime"
                 ? "Training Slime swells up! A heavy SLAM is coming."
                 : battle.boss === "golem"
-                  ? "Stone Golem raises both fists! A CRUSHING BLOW is coming."
+                  ? "Stone Golem raises its shield! Deal 12 damage now to cancel the slam, or Guard."
                   : battle.boss === "owl"
                     ? "Frost Owl gathers a blizzard! An ICE DIVE is coming."
                     : "Ancient Shellback locks into its armor! A MIRE CRUSH is coming.",
           }));
           return;
         }
-        const dodged = Math.random() < Math.min(0.45, 0.06 + agility * 0.04);
-        const incoming =
-          battle.boss === "shellback"
-            ? battle.heavyReady
-              ? 62
-              : 28 + Math.floor(Math.random() * 9)
-            : battle.boss === "owl"
-              ? battle.heavyReady
-                ? 54
-                : 24 + Math.floor(Math.random() * 8)
-              : battle.boss === "golem"
-                ? battle.heavyReady
-                  ? 30
-                  : 12 + Math.floor(Math.random() * 6)
-                : battle.heavyReady
-                  ? 30
-                  : 12 + Math.floor(Math.random() * 6);
+        const dodged = Math.random() < Math.min(0.25, agility * 0.02);
+        const incoming = activeBoss.attack * (battle.heavyReady ? 2 : 1);
         const defended = Math.max(1, incoming - (defense - 1) * 3);
-        const dealt = dodged ? 0 : Math.round(defended * (move === "guard" ? 0.35 : 1));
+        const dealt = dodged ? 0 : Math.ceil(defended * (move === "guard" ? 0.5 : 1));
         const playerHp = Math.max(0, battle.playerHp - dealt);
+        const timing = bossAttackTiming(battle.boss, battle.bossAttackCount + 1);
         setBattle((b) => ({
           ...b,
-          playerHp,
+          opening: battle.boss === "owl" && battle.heavyReady && move === "guard" && agility >= 2,
+          charge: battle.boss === "owl" && battle.heavyReady && move === "guard" && agility >= 2 ? Math.min(3, b.charge+1) : b.charge,
           busy: true,
           turn: nextTurn,
-          action: dodged ? "idle" : "hit",
+          action: move === "guard" ? "guard" : "idle",
           bossAction: "attack",
           bossAttackCount: b.bossAttackCount + 1,
           heavyReady: false,
+          message: `${activeBoss.name} winds up an attack...`,
+        }));
+        later(() => setBattle(b => ({
+          ...b,
+          playerHp,
+          action: dodged ? "idle" : "hit",
           message: dodged
             ? "Quick feet! You dodged the attack."
             : move === "guard"
-              ? `Guard absorbs the blow. ${dealt} damage taken.`
+              ? `Guard absorbs the blow. ${dealt} damage taken.${battle.boss === "owl" && battle.heavyReady && agility >= 2 ? " Extra charge earned! Attack next turn for 1.5x damage." : ""}`
               : `${
                   battle.boss === "slime"
                     ? "Slime"
@@ -866,21 +938,47 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                         ? "Owl"
                         : "Shellback"
                 } strikes for ${dealt} damage.`,
-          result: playerHp <= 0 ? "defeat" : null,
-        }));
-        setTimeout(
-          () =>
-            setBattle((b) =>
-              b.result ? b : { ...b, busy: false, action: "idle", bossAction: "idle" },
-            ),
-          780,
-        );
+        })), timing.impact);
+        later(() => {
+          turnLocked.current = false;
+          setBattle(b => ({
+            ...b, busy: false, action: "idle", bossAction: "idle",
+            result: playerHp <= 0 ? "defeat" : null,
+          }));
+        }, timing.duration);
       },
-      move === "guard" ? 450 : 780,
+      move === "guard" ? 450 : attackDuration,
     );
   }
 
+  const characterProgressBadge = (
+    <div className="floating-character-progress" role="tooltip">
+      <b className="character-level">LV {characterLevel(save)}</b>
+              <div className="character-xp" title="Train evenly: only one level ahead of your lowest stat counts toward character level. Extra stat levels still improve combat. This bar shows your next eligible stat.">
+                <div className="character-xp-label"><small>{characterXp.stat} XP</small><small>{characterXp.earned}/{characterXp.required}</small></div>
+                <div className="character-xp-track" role="progressbar" aria-label={`${characterXp.stat} XP toward character level ${characterLevel(save) + 1}`}
+                  aria-valuemin={0} aria-valuemax={characterXp.required} aria-valuenow={characterXp.earned}>
+                  <i style={{ width: `${characterXp.percent}%` }} />
+                </div>
+              </div>
+    </div>
+  );
+
+  const characterHoverCue = <small className="character-hover-cue" aria-hidden="true"><i>i</i><span className="hover-cue-desktop">Hover</span><span className="hover-cue-touch">Tap</span> for level &amp; XP</small>;
+  const characterHoverProps = {
+    tabIndex: 0,
+    role: "group" as const,
+    "aria-label": `Rook. Hover, tap, or focus to reveal level ${characterLevel(save)} and XP.`,
+    onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.pointerType === "touch") event.currentTarget.focus();
+    },
+    onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === "Escape") event.currentTarget.blur();
+    },
+  };
+
   const hud = scene !== "battle" && !exercise;
+
 
   return (
     <>
@@ -888,18 +986,47 @@ export default function App({ userId, username, initialSave, initialRevision = 0
     {saveBlocked && <div className="save-error-overlay"><section className="pixel-frame account-panel" role="alert">
       <h2>{saveStatus === "conflict" ? "Cloud save changed" : "Progress not saved"}</h2>
       <p>{saveError}</p>
-      {saveStatus === "conflict" ? <><p>Reloading discards unsaved changes on this device and loads the newer cloud save.</p><button className="pixel-button" onClick={onReload}>RELOAD CLOUD SAVE</button></> : <button className="pixel-button" disabled={saveStatus === "saving"} onClick={retry}>{saveStatus === "saving" ? "RETRYING…" : "RETRY SAVE"}</button>}
+      {saveStatus === "conflict" ? <><p>Reloading discards unsaved changes on this device and loads the newer cloud save.</p><button className="pixel-button" onClick={() => { discardRecovery(); onReload(); }}>RELOAD CLOUD SAVE</button></> : <button className="pixel-button" disabled={saveStatus === "saving"} onClick={retry}>{saveStatus === "saving" ? "RETRYING…" : "RETRY SAVE"}</button>}
     </section></div>}
+    <div className={`progress-save-status status-${saveStatus}`} role="status" aria-live="polite">
+      <i aria-hidden="true" />
+      {saveStatus === "saving" ? "Saving progress…" : saveStatus === "error" ? "Save failed · recovery kept on this device" : saveStatus === "conflict" ? "Cloud save changed · reload required" : userId ? "Progress saved to account" : demo ? "Demo progress saved on this device" : "Guest progress saved on this device"}
+    </div>
     <main inert={saveBlocked || loggingOut || undefined} className={`game-shell scene-${scene} ${transition ? "is-transitioning" : ""}`}>
+      {demo && <details className="demo-controls" style={{position:"fixed",bottom:8,left:8,zIndex:9999,background:"#182018",color:"white",padding:12}}><summary>Demo Controls · Separate Save</summary>
+        <p>{demoDate.toLocaleDateString()} · Training streak: {currentStreak(save, demoDate)} days</p>
+        <p>{ultimateUnlocked ? "Ultimate unlocked — use Fill Charges in battle to test it." : `Reach Character Level ${ULTIMATE_UNLOCK_LEVEL} to unlock Ultimate. Use Add XP to test.`}</p>
+        <button disabled={exercise || battle.busy} onClick={() => {
+          const next = nextDemoTrainingDay(save, demoDate);
+          setDemoDate(next.date);
+          setSave(next.save);
+        }}>Next Training Day</button>
+        <small>Advances one day and counts a completed training session.</small>
+        <button onClick={()=>setDemoDate(d=>{const n=new Date(d);n.setDate(n.getDate()+2);return n;})}>Skip a Day</button>
+        {Object.entries(STAT_INFO).map(([key, info]) => <button key={key} disabled={exercise || scene === "battle"} onClick={()=>setSave(s=>({...s,[info.xpKey]:s[info.xpKey]+100}))}>Add 100 {info.label} XP</button>)}
+        <div className="demo-level-controls">
+          <p>Level shortcuts (demo save only)</p>
+          {[3, 5, 7].map(level => <button key={level} disabled={exercise || scene === "battle"} onClick={() => setSave(s => raiseDemoLevel(s, level))}>Reach Level {level}</button>)}
+          {(["golem", "owl", "shellback"] as BossKey[]).map(boss => <button key={boss} disabled={exercise || scene === "battle"} onClick={() => setSave(s => unlockDemoBoss(s, boss))}>Unlock {BOSSES[boss].name} (LV {BOSS_REQUIREMENTS[boss].level} + prior clears)</button>)}
+        </div>
+        <button onClick={()=>{clearTimers(); setCameraEnabled(false);setCameraReady(false);setExercise(false);setReward(null);setModal(null);setScene("base");setTransition(false);setMoving(false);setSave({...DEFAULT_SAVE,rewards:[]});setDemoDate(new Date());}}>Reset Demo</button>
+        <button disabled={scene !== "battle" || battle.busy || !!battle.result} onClick={()=>setBattle(b=>({...b,charge:3}))}>Fill Charges</button>
+      </details>}
       {hud && (
         <>
           <div className="player-card">
             <div className="portrait">
-              <Character skin={save.skin} />
+              <Character skin={skin} />
             </div>
             <div>
               <span>ADVENTURER</span>
               <strong>{username || "ROOK"}</strong>
+              <small className={`character-streak ${streakDays > 0 ? "has-streak" : ""}`}
+                title="Complete a training session each day to build your streak."
+                aria-label={`${streakDays} consecutive training ${streakDays === 1 ? "day" : "days"}`}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2c1 5-3 6-2 10 2-1 3-3 3-5 4 3 6 6 6 9a8 8 0 0 1-16 0c0-4 3-7 5-9-1 4 0 5 1 6-1-5 5-6 3-11Z" fill="currentColor" /></svg>
+                {streakDays} DAY{streakDays === 1 ? "" : "S"} STREAK
+              </small>
             </div>
           </div>
           <div className="top-controls">
@@ -911,7 +1038,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
               <PixelIcon type="sound" />
             </button>
             <button
-              onClick={() => setHint(userId ? "Progress saves automatically to your account." : "Guest progress saves automatically on this browser.")}
+              onClick={() => setHint("Settings: progress saves automatically on this device.")}
               aria-label="Settings"
             >
               <PixelIcon type="settings" />
@@ -925,7 +1052,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                 try { await onLogout(); } finally { setLoggingOut(false); }
               }}
             >
-              Log out
+              {userId ? "Log out" : "Sign in"}
             </button>
           </div>
           <div className="stats-hud">
@@ -967,14 +1094,6 @@ export default function App({ userId, username, initialSave, initialRevision = 0
           >
             <span className="object-label">PLAYER STATS</span>
           </button>
-          <button
-            className="world-object wardrobe"
-            onClick={() => travel(68, 38, () => setModal("wardrobe"), "Checking the wardrobe...")}
-          >
-            <span className="object-label">WARDROBE</span>
-            <i />
-            <i />
-          </button>
           <div className="base-sign">
             <i />{" "}
             <p>
@@ -990,8 +1109,10 @@ export default function App({ userId, username, initialSave, initialRevision = 0
           <div className="plant plant-b" />
           <div className="lantern lantern-a" />
           <div className="lantern lantern-b" />
-          <div className="player-world" style={{ left: `${playerPos.x}%`, top: `${playerPos.y}%` }}>
-            <Character skin={save.skin} action={moving ? "walk" : "idle"} facing={worldFacing} />
+          <div {...characterHoverProps} className="player-world character-progress-target" style={{ left: `${playerPos.x}%`, top: `${playerPos.y}%`, "--walk-duration": `${WALK_MS}ms` } as CSSProperties}>
+            <Character skin={skin} action={moving ? "walk" : "idle"} facing={worldFacing} />
+            {characterProgressBadge}
+            {characterHoverCue}
           </div>
         </section>
       )}
@@ -1073,8 +1194,10 @@ export default function App({ userId, username, initialSave, initialRevision = 0
           </button>
           <div className="mat mat-left" />
           <div className="mat mat-right" />
-          <div className="player-world" style={{ left: `${playerPos.x}%`, top: `${playerPos.y}%` }}>
-            <Character skin={save.skin} action={moving ? "walk" : "idle"} facing={worldFacing} />
+          <div {...characterHoverProps} className="player-world character-progress-target" style={{ left: `${playerPos.x}%`, top: `${playerPos.y}%`, "--walk-duration": `${WALK_MS}ms` } as CSSProperties}>
+            <Character skin={skin} action={moving ? "walk" : "idle"} facing={worldFacing} />
+            {characterProgressBadge}
+            {characterHoverCue}
           </div>
         </section>
       )}
@@ -1119,48 +1242,20 @@ export default function App({ userId, username, initialSave, initialRevision = 0
         </div>
       )}
 
-      {modal === "wardrobe" && (
-        <div className="overlay compact-overlay">
-          <Frame title="WARDROBE" className="wardrobe-dialog">
-            <div className="wardrobe-preview back-preview">
-              <Character skin={save.skin} />
-            </div>
-            <p>Choose your character model.</p>
-            <div className="swatches">
-              {CHARACTER_MODELS.map(([sprite], skin) => (
-                <button
-                  key={skin}
-                  className={`swatch ${save.skin === skin ? "selected" : ""}`}
-                  onClick={() => setSave((s) => ({ ...s, skin }))}
-                  aria-label={`Character model ${skin + 1}`}
-                >
-                  <img src={sprite} alt="" />
-                </button>
-              ))}
-            </div>
-            {save.rewards.includes("Slime Band") && (
-              <div className="owned-item">EQUIPPED: SLIME BAND</div>
-            )}
-            <button className="pixel-button primary full" onClick={() => setModal(null)}>
-              DONE
-            </button>
-          </Frame>
-        </div>
-      )}
-
       {modal === "stats" && (
         <div className="overlay compact-overlay">
           <Frame title="PLAYER STATS" className="stats-dialog">
             <div className="stats-identity">
               <div className="stats-portrait">
-                <Character skin={save.skin} />
+                <Character skin={skin} />
               </div>
               <div>
                 <span>ADVENTURER</span>
                 <h2>ROOK</h2>
-                <small>Training Rank {strength + agility + defense + vitality}</small>
+                <small>Character Level {characterLevel(save)} · Streak {currentStreak(save, demo ? demoDate : new Date())} days · {ultimateUnlocked ? "Ultimate unlocked" : `Ultimate unlocks at Level ${ULTIMATE_UNLOCK_LEVEL}`}</small>
               </div>
             </div>
+            <p className="stats-note">Balanced training: stats count toward character level up to one level above your lowest stat. Extra stat levels still improve combat. Train {characterXp.stat} next to progress.</p>
             <div className="stats-sheet">
               <div className="stats-sheet-row">
                 <div>
@@ -1170,7 +1265,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                 <div className="xp-track">
                   <i style={{ width: `${levelProgress(save.strengthXp)}%` }} />
                 </div>
-                <small>{levelProgress(save.strengthXp)} / 100 XP</small>
+                <small>{xpProgress(save.strengthXp).earned} / {xpProgress(save.strengthXp).required} XP</small>
               </div>
               <div className="stats-sheet-row agility">
                 <div>
@@ -1180,7 +1275,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                 <div className="xp-track">
                   <i style={{ width: `${levelProgress(save.agilityXp)}%` }} />
                 </div>
-                <small>{levelProgress(save.agilityXp)} / 100 XP</small>
+                <small>{xpProgress(save.agilityXp).earned} / {xpProgress(save.agilityXp).required} XP</small>
               </div>
               <div className="stats-sheet-row defense">
                 <div>
@@ -1190,7 +1285,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                 <div className="xp-track">
                   <i style={{ width: `${levelProgress(save.defenseXp)}%` }} />
                 </div>
-                <small>{levelProgress(save.defenseXp)} / 100 XP</small>
+                <small>{xpProgress(save.defenseXp).earned} / {xpProgress(save.defenseXp).required} XP</small>
               </div>
               <div className="stats-sheet-row vitality">
                 <div>
@@ -1200,17 +1295,18 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                 <div className="xp-track">
                   <i style={{ width: `${levelProgress(save.healthXp)}%` }} />
                 </div>
-                <small>{levelProgress(save.healthXp)} / 100 XP</small>
+                <small>{xpProgress(save.healthXp).earned} / {xpProgress(save.healthXp).required} XP</small>
               </div>
             </div>
+            <p>{skin < 5 ? `Next appearance at character level ${(skin+1)*2+1}` : "Final appearance unlocked"}</p>
             <div className="combat-summary">
               <div>
                 <span>ATTACK BONUS</span>
-                <strong>+{strength * 3}</strong>
+                <strong>+{strength * 2}</strong>
               </div>
               <div>
                 <span>DODGE CHANCE</span>
-                <strong>{Math.round(Math.min(0.45, 0.06 + agility * 0.04) * 100)}%</strong>
+                <strong>{Math.round(Math.min(0.25, agility * 0.02) * 100)}%</strong>
               </div>
               <div>
                 <span>DAMAGE BLOCK</span>
@@ -1272,6 +1368,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                     ? "Master of the frozen throne. Survive its swift dives and the blizzard it gathers overhead."
                     : "The final guardian waits beneath an ancient iron shell. Break through the mire and conquer the last arena."}
             </p>
+            <p className="stats-note">{featuredBoss === "slime" ? "Practice Guard before a telegraphed slam." : featuredBoss === "golem" ? `Strength ${strength}/4 recommended · ${Math.min(save.strengthXp,600)}/600 XP. Train curls to break the shield with a 12-damage hit. Guard remains an option.` : featuredBoss === "owl" ? `Agility ${agility}/2 recommended · ${Math.min(save.agilityXp,100)}/100 XP. Guard the dive for an extra charge and a one-turn damage opening.` : `Defense ${defense}/3 recommended · ${Math.min(save.defenseXp,300)}/300 XP. Train sit-ups to resist counters; Guard builds charge safely.`}</p>
             {featuredBoss !== "golem" && (
               <div className={`future-boss ${golemUnlocked ? "unlocked" : ""}`}>
                 <span className="golem-arena-preview" aria-hidden="true">
@@ -1281,8 +1378,8 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                   <b>STONE GOLEM</b>
                   <small>
                     {golemUnlocked
-                      ? "Rank II • 150 HP • Cleared"
-                      : "Defeat the Training Slime to unlock"}
+                      ? "Rank II • 100 HP • Ready"
+                      : bossLockReason(save, "golem")}
                   </small>
                 </div>
                 <button
@@ -1302,7 +1399,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                 <div>
                   <b>FROST OWL</b>
                   <small>
-                    {owlUnlocked ? "Rank III • 220 HP • Ready" : "Defeat the Stone Golem to unlock"}
+                    {owlUnlocked ? "Rank III • 90 HP • Ready" : bossLockReason(save, "owl")}
                   </small>
                 </div>
                 <button
@@ -1314,7 +1411,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                 </button>
               </div>
             )}
-            {owlUnlocked && featuredBoss !== "shellback" && (
+            {featuredBoss !== "shellback" && (
               <div className={`future-boss mire-boss ${shellbackUnlocked ? "unlocked" : ""}`}>
                 <span className="shellback-arena-preview" aria-hidden="true">
                   <ShellbackSprite className="shellback-preview" />
@@ -1323,8 +1420,8 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                   <b>ANCIENT SHELLBACK</b>
                   <small>
                     {shellbackUnlocked
-                      ? "Final Rank • 300 HP • Ready"
-                      : "Defeat the Frost Owl to unlock"}
+                      ? "Final Rank • 120 HP • Ready"
+                      : bossLockReason(save, "shellback")}
                   </small>
                 </div>
                 <button
@@ -1336,8 +1433,9 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                 </button>
               </div>
             )}
+            <p className="stats-note">Requires Character Level {BOSS_REQUIREMENTS[featuredBoss].level} / You are Level {characterLevel(save)}{bossLockReason(save, featuredBoss) && ` / ${bossLockReason(save, featuredBoss)}`}</p>
             <div className="dialog-actions">
-              <button className="pixel-button danger" onClick={() => beginBattle(featuredBoss)}>
+              <button className="pixel-button danger" disabled={!!bossLockReason(save, featuredBoss)} onClick={() => beginBattle(featuredBoss)}>
                 FIGHT{" "}
                 {featuredBoss === "slime"
                   ? "SLIME"
@@ -1374,7 +1472,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                     exercise={activeStation.tracking}
                     onReady={onCameraReady}
                     onError={onCameraError}
-                    onProgress={addProgress}
+                    onProgress={stableProgress}
                     onFeedback={setFeedback}
                   />
                 )}
@@ -1412,7 +1510,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
             <div className="training-side">
               <Frame title="AVATAR FORM" className="avatar-training">
                 <div className="mini-gym">
-                  <Character skin={save.skin} action={paused ? "idle" : activeStation.action} />
+                  <Character skin={skin} action={paused ? "idle" : activeStation.action} />
                   <div className={`mini-equipment mini-${selected}`} />
                 </div>
               </Frame>
@@ -1435,7 +1533,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
             </div>
           </div>
           <div className="training-controls">
-            {import.meta.env.DEV && (
+            {demo && (
               <div className="demo-controls">
                 <span>DEMO MODE</span>
                 <button
@@ -1486,7 +1584,8 @@ export default function App({ userId, username, initialSave, initialRevision = 0
       )}
 
       {scene === "battle" && (
-        <section className={`battle-room arena-${battle.boss}`}>
+        <section className={`battle-room arena-${battle.boss} ${battle.ultimate ? "is-ultimate" : ""}`}>
+          {battle.ultimate && <UltimateEffect />}
           <div className="battle-backdrop">
             <div className="moon" />
             <div className="pillar p1" />
@@ -1495,7 +1594,9 @@ export default function App({ userId, username, initialSave, initialRevision = 0
             <div className="torch t2" />
           </div>
           <div
-            className={`fighter player-fighter ${battle.action === "attack" ? "is-attacking" : ""}`}
+            style={{ "--attack-duration": `${PLAYER_ATTACK_MS}ms` } as CSSProperties}
+            {...characterHoverProps}
+            className={`fighter player-fighter character-progress-target ${battle.action === "attack" ? "is-attacking" : ""}`}
           >
             <div className="combat-hp">
               <span>ROOK</span>
@@ -1506,9 +1607,12 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                 {battle.playerHp}/{maxHealth}
               </b>
             </div>
-            <Character skin={save.skin} action={battle.action} facing="back" />
+            <Character skin={skin} action={battle.action} facing="back" />
+            {characterProgressBadge}
+            {characterHoverCue}
           </div>
           <div
+            style={{ "--attack-duration": `${bossAttackTiming(battle.boss, battle.bossAttackCount).duration}ms` } as CSSProperties}
             className={`fighter boss-fighter boss-${battle.bossAction} ${
               battle.boss === "golem" ? "golem-fighter" : ""
             } ${battle.boss === "owl" ? "owl-fighter" : ""} ${
@@ -1573,9 +1677,9 @@ export default function App({ userId, username, initialSave, initialRevision = 0
           <div className="battle-ui">
             <Frame className="battle-dialogue">
               <p>{battle.message}</p>
-              <button className="test-ko-button" disabled={!!battle.result} onClick={testClearBoss}>
-                TEST: BOSS HP = 0
-              </button>
+              {demo && <button className="test-ko-button" disabled={battle.busy || !!battle.result} onClick={testClearBoss}>
+                DEMO: DEFEAT BOSS
+              </button>}
             </Frame>
             <Frame title="COMMAND" className="command-panel">
               <button disabled={battle.busy} onClick={() => battleTurn("attack")}>
@@ -1587,10 +1691,13 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                 <span>Reduce damage</span>
               </button>
               <button
-                disabled={battle.busy || battle.charge < 3}
+                disabled={battle.busy || battle.charge < 3 || !ultimateUnlocked}
+                title={ultimateStatus}
+                aria-label={`Ultimate: ${ultimateStatus}`}
                 onClick={() => battleTurn("special")}
               >
-                <b>SPECIAL</b>
+                <b>ULTIMATE</b>
+                <small>{ultimateStatus}</small>
                 <span className="charge-meter">
                   {[1, 2, 3].map((n) => (
                     <i key={n} className={battle.charge >= n ? "charged" : ""} />
@@ -1621,7 +1728,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                       />
                       <div>
                         <small>
-                          {battle.boss === "shellback" ? "ALL ARENAS CLEARED" : "BOSS UNLOCKED"}
+                          {!nextBoss ? "ALL ARENAS CLEARED" : nextBossLocked ? "NEXT BOSS · LEVEL REQUIRED" : "BOSS UNLOCKED"}
                         </small>
                         <strong>
                           {battle.boss === "slime"
@@ -1635,13 +1742,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
                       </div>
                     </div>
                     <p>
-                      {battle.boss === "slime"
-                        ? "The Stone Golem encounter is now available at the arena gate."
-                        : battle.boss === "golem"
-                          ? "The Frost Owl encounter is now available at the arena gate."
-                          : battle.boss === "owl"
-                            ? "The final Ancient Shellback encounter is now available."
-                            : "Every arena champion has been defeated."}
+                      {nextBoss ? nextBossLocked || `${BOSSES[nextBoss].name} is available at the arena gate.` : "Every arena champion has been defeated."}
                     </p>
                     <button
                       className="pixel-button primary full"

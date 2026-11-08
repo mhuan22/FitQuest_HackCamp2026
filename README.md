@@ -17,8 +17,8 @@ Open the localhost address printed by Vite and choose **Explore as a guest**. Us
 
 Enter the gym, choose a station and a target, then select **Enable Camera**. Camera access requires localhost or HTTPS. The browser downloads the MediaPipe model and runtime when tracking starts. Camera frames are processed in the browser.
 
-- Curls, squats, and sit-ups count completed movements and earn 10 XP per rep when you reach the session target.
-- The treadmill measures sustained movement and earns 10 Vitality XP per 30 active seconds when you reach the session target.
+- Curls, squats, and sit-ups count completed movements and earn 10 XP per rep as you train.
+- The treadmill measures sustained movement and earns 10 Vitality XP per 30 active seconds as you train.
 - Pause or finish the session to stop the camera. Resuming keeps the progress already counted.
 
 The local development server offers simulation controls for testing the workout flow. Guest saves are tied to the browser and site address.
@@ -68,3 +68,9 @@ The **Log out** button appears with the controls at the top right of the base an
 - `src/game` contains player progression and save data.
 - `src/App.tsx` renders the game and connects workouts to progression and combat.
 - `.figma` contains Figma Make configuration for the original export.
+
+## Verify the application
+
+Run `npm run check` for TypeScript, account and game integration tests, progression/animation/workout-tracking tests, disposable PostgreSQL migration checks, and the production build. The database tests do not connect to hosted Supabase.
+
+See [user progress saves](docs/SAVE_PROGRESS.md) for persistence behavior and [verification results](docs/VERIFICATION.md) for the latest review and manual checks.

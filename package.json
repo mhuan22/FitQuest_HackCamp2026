@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:db": "node scripts/test-database.mjs",
-    "format": "oxfmt"
+    "format": "oxfmt",
+    "test:db:embedded": "node scripts/test-progress-db.mjs",
+    "check": "npm run typecheck && npm test && node --test tests/*.test.mjs && npm run test:db:embedded && npm run build"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "0.10.32",
@@ -19,6 +21,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.15",
     "@tailwindcss/vite": "^4.0.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",

@@ -176,7 +176,7 @@
   align-items: center;
   gap: 12px;
   min-width: 190px;
-  height: 62px;
+  min-height: 76px;
   padding: 7px 16px 7px 8px;
   background: #242432;
   border: 4px solid #0e1018;
@@ -214,6 +214,75 @@
   font: 12px var(--pixel);
   letter-spacing: 1px;
 }
+.character-streak {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  color: #a99d8d;
+  font: 7px/1.4 var(--pixel);
+  white-space: nowrap;
+}
+.character-streak.has-streak { color: #ffc66d; }
+.character-streak svg { width: 13px; height: 15px; flex-shrink: 0; }
+.floating-character-progress {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  translate: -50% 0;
+  width: 136px;
+  padding: 7px 9px;
+  border: 1px solid #b8c7d54d;
+  border-radius: 5px;
+  background: #101722db;
+  box-shadow: 0 3px 10px #0006;
+  text-align: center;
+  pointer-events: none;
+  z-index: 6;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .15s ease, visibility .15s;
+}
+.character-progress-target { cursor: help; }
+.character-progress-target:focus-visible { outline: 2px dashed #ffe6a3; outline-offset: 5px; }
+.character-progress-target:hover > .floating-character-progress,
+.character-progress-target:focus-visible > .floating-character-progress { opacity: 1; visibility: visible; }
+.character-hover-cue {
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 7px;
+  border: 1px solid #d5c39555;
+  border-radius: 4px;
+  color: #eadab6;
+  background: #101722d9;
+  font: 9px/1.3 "DM Sans", sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.character-hover-cue i { font-style: normal; font-weight: 700; color: #ffcf75; }
+.character-hover-cue .hover-cue-touch { display: none; }
+.character-progress-target:hover > .character-hover-cue,
+.character-progress-target:focus-visible > .character-hover-cue { visibility: hidden; }
+.player-fighter > .floating-character-progress,
+.player-fighter > .character-hover-cue { top: auto; bottom: calc(100% + 10px); }
+@media (hover: none) {
+  .character-hover-cue .hover-cue-desktop { display: none; }
+  .character-hover-cue .hover-cue-touch { display: inline; }
+  .character-progress-target:focus > .floating-character-progress { opacity: 1; visibility: visible; }
+  .character-progress-target:focus > .character-hover-cue { visibility: hidden; }
+}
+.floating-character-progress .character-xp { min-width: 0; margin-top: 6px; }
+.floating-character-progress .character-level { display: inline-block; padding: 0; border: 0; background: none; }
+.character-level { padding: 4px 5px; color: #ffe6a3; background: #59452c; border: 1px solid #af8548; font: 7px var(--pixel); white-space: nowrap; }
+.character-xp { min-width: 148px; margin-top: 8px; }
+.character-xp-label { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 4px; color: #bacdd9; font: 6px/1.5 var(--pixel); }
+.character-xp-track { height: 9px; padding: 1px; border: 1px solid #5e7485; background: #101722; }
+.character-xp-track i { display: block; height: 100%; background: linear-gradient(90deg, #4595bd, #8ee4ee); box-shadow: 0 0 6px #70d1e655; transition: width .3s ease; }
 
 .top-controls {
   position: absolute;
@@ -698,8 +767,8 @@
   height: 72px;
   translate: -50% -50%;
   transition:
-    left 0.9s linear,
-    top 0.9s linear;
+    left var(--walk-duration, 900ms) linear,
+    top var(--walk-duration, 900ms) linear;
 }
 .character {
   position: relative;
@@ -1948,7 +2017,7 @@
   bottom: 19%;
 }
 .player-fighter.is-attacking {
-  animation: player-attack-dash 0.62s steps(6, end) both;
+  animation: player-attack-dash var(--attack-duration, 800ms) steps(6, end) both;
 }
 .player-fighter.is-attacking::after {
   content: "ATTACK";
@@ -2002,13 +2071,13 @@
 }
 .boss-fighter.boss-attack {
   z-index: 4;
-  animation: boss-attack-dash 0.78s steps(7, end) both;
+  animation: boss-attack-dash var(--attack-duration, 780ms) steps(7, end) both;
 }
 .boss-fighter.golem-fighter.boss-attack {
   animation: none;
 }
 .boss-fighter.golem-fighter.golem-rush {
-  animation: boss-attack-dash 0.78s steps(7, end) both;
+  animation: boss-attack-dash var(--attack-duration, 780ms) steps(7, end) both;
 }
 .boss-fighter.shellback-fighter.shellback-slam {
   animation: none;
@@ -2098,6 +2167,17 @@
   object-fit: contain;
   filter: drop-shadow(0 10px 4px rgba(38, 52, 28, 0.45));
 }
+/* These canvases extend beyond the 220px fighter anchor. Tailwind's image
+   max-width would clamp only their width and squash the attack artwork. */
+.golem-sprite,
+.owl-sprite,
+.shellback-sprite,
+.golem-attack-sprite,
+.owl-attack-sprite,
+.shellback-attack-sprite {
+  max-width: none;
+  object-fit: contain;
+}
 .combat-golem {
   position: absolute;
   left: 50%;
@@ -2144,7 +2224,7 @@
   width: 380px;
   height: 279px;
   transform-origin: 50% 88%;
-  animation: shellbackApproachScale 0.78s steps(7, end) both;
+  animation: shellbackApproachScale var(--attack-duration, 780ms) steps(7, end) both;
 }
 .shellback-attack-pattern-2 {
   left: 50%;
@@ -2216,7 +2296,7 @@
   width: 280px;
   height: 280px;
   transform-origin: 50% 88%;
-  animation: slime-approach-scale 0.78s steps(7, end) both;
+  animation: slime-approach-scale var(--attack-duration, 780ms) steps(7, end) both;
 }
 .slime-attack-sprite {
   position: absolute;
@@ -2242,6 +2322,9 @@
   scale: 1.08;
 }
 .slime-attack-sprite.slime-pattern-1.slime-frame-6 {
+  /* Taller canvas keeps the full burst below the body at the same pixel scale. */
+  height: 490px;
+  bottom: -76px;
   scale: 1.15;
 }
 .slime-attack-sprite.slime-pattern-1.slime-frame-7 {
@@ -3391,3 +3474,69 @@
   .auth-card { max-width: 440px; padding: 24px; }
   .auth-footer { font-size: 6px; line-height: 2; }
 }
+
+/* DawnBreaker: charge, release, impact, then let the battlefield breathe. */
+.ultimate-fx { position: absolute; inset: 0; z-index: 8; pointer-events: none; isolation: isolate; }
+.ultimate-shade { position: absolute; inset: 0; background: radial-gradient(ellipse at 34% 60%, #141b25a0, #050811ed); animation: ultimate-shade var(--ult-duration) both; }
+.ultimate-bar { position: absolute; left: 0; right: 0; height: 9%; background: #05070c; box-shadow: 0 1px #f8d68a40; animation: ultimate-letterbox var(--ult-duration) both; }
+.ultimate-bar-top { top: 0; transform-origin: top; }
+.ultimate-bar-bottom { bottom: 0; transform-origin: bottom; }
+.ultimate-title { position: absolute; top: 13%; left: 0; right: 0; text-align: center; color: #ffe9af; animation: ultimate-title 900ms both; }
+.ultimate-title small, .ultimate-title span { display: block; font: clamp(6px, .85vw, 11px)/2 var(--pixel); letter-spacing: .28em; }
+.ultimate-title strong { display: block; margin: 10px 0; font: clamp(16px, 3.5vw, 48px)/1.4 var(--pixel); letter-spacing: .07em; text-shadow: 0 3px #b35422, 0 0 30px #ffb83890; }
+.ultimate-title span { color: #c8b995; font-size: clamp(5px, .6vw, 9px); }
+.ultimate-rune { position: absolute; left: 34%; top: 75%; width: 25%; aspect-ratio: 1; translate: -50% -50%; transform: rotateX(65deg); animation: ultimate-rune 1000ms both; }
+.ultimate-rune i { position: absolute; inset: 0; border: 3px solid #ffe5a0; border-radius: 50%; box-shadow: 0 0 20px #ffbc47, inset 0 0 16px #ffbc4766; }
+.ultimate-rune i:nth-child(2) { inset: 12%; border: 2px dashed #ffc75a; animation: ultimate-spin 2s linear infinite; }
+.ultimate-rune i:nth-child(3) { inset: 24%; border-radius: 0; rotate: 45deg; }
+.ultimate-pillar { position: absolute; left: 34%; bottom: 24%; width: 14%; height: 70%; translate: -50% 0; background: linear-gradient(0deg, #fff0adbb, #ffc24933 55%, transparent); clip-path: polygon(25% 100%, 0 0, 100% 0, 75% 100%); animation: ultimate-pillar 1000ms both; }
+.is-ultimate .player-fighter { z-index: 10; }
+.is-ultimate .player-fighter .back-sprite { filter: drop-shadow(0 0 9px #fff3b9) drop-shadow(0 0 24px #ffad32); }
+.is-ultimate .player-fighter.is-attacking::after { content: "LIMIT BREAK"; background: #6e3920; color: #ffe5a1; }
+.ultimate-speedlines { position: absolute; inset: 0; background: repeating-linear-gradient(-17deg, transparent 0 28px, #ffe6a830 29px 30px, transparent 31px 70px); animation: ultimate-speed 330ms var(--ult-windup) both; }
+.ultimate-blade { position: absolute; inset: 0; width: 100%; height: 100%; filter: drop-shadow(0 0 12px #ffb742); animation: ultimate-slash 450ms var(--ult-windup) both; }
+.ultimate-impact { position: absolute; left: 73.5%; top: 48%; width: 35%; aspect-ratio: 1; translate: -50% -50%; animation: ultimate-impact 650ms var(--ult-impact) both; }
+.ultimate-impact i { position: absolute; inset: 0; border: 4px solid #ffe7a5; border-radius: 50%; box-shadow: 0 0 26px #ffbc46; }
+.ultimate-impact i:nth-child(2) { inset: 14%; border-width: 12px; border-color: #ffb54a80; }
+.ultimate-impact i:nth-child(3) { inset: -15%; border: 2px dashed #fff4c4; }
+.ultimate-impact::after { content: ""; position: absolute; inset: -12%; background: radial-gradient(circle, #fffbe4, #ffcb65 30%, #ff982400 70%); clip-path: polygon(50% 0, 56% 35%, 82% 12%, 65% 43%, 100% 50%, 65% 57%, 82% 88%, 56% 65%, 50% 100%, 44% 65%, 18% 88%, 35% 57%, 0 50%, 35% 43%, 18% 12%, 44% 35%); }
+.ultimate-sparks { position: absolute; left: 73.5%; top: 48%; }
+.ultimate-sparks i { position: absolute; width: 7px; height: 7px; background: #ffdf89; box-shadow: 0 0 10px #ffad32; animation: ultimate-spark 700ms calc(var(--ult-impact) + var(--spark-delay)) both; }
+.ultimate-callout { position: absolute; left: 50%; top: 66%; translate: -50% 0; text-align: center; color: #fff0b6; white-space: nowrap; animation: ultimate-callout 800ms var(--ult-impact) both; }
+.ultimate-callout small { display: block; font: clamp(6px, .8vw, 10px)/2 var(--pixel); letter-spacing: .5em; color: #ffcc65; }
+.ultimate-callout strong { font: clamp(14px, 2.4vw, 32px)/1.7 var(--pixel); text-shadow: 3px 3px #6e3020, 0 0 25px #ffc14c; }
+.is-ultimate .battle-backdrop, .is-ultimate .boss-fighter { animation: ultimate-shake 450ms 1200ms both; }
+/* Keep golem and shellback stationary during the player's cinematic. */
+.is-ultimate .boss-fighter { z-index: 9; }
+@keyframes ultimate-shade { 0% { opacity: 0; } 12%, 58% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes ultimate-letterbox { 0%, 100% { scale: 1 0; } 12%, 83% { scale: 1; } }
+@keyframes ultimate-title { 0% { opacity: 0; transform: translateY(12px); } 20%, 80% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-10px); } }
+@keyframes ultimate-rune { 0% { opacity: 0; scale: .35; } 25%, 80% { opacity: 1; scale: 1; } 100% { opacity: 0; scale: 1.35; } }
+@keyframes ultimate-spin { to { rotate: 360deg; } }
+@keyframes ultimate-pillar { 0% { opacity: 0; scale: .2 0; transform-origin: bottom; } 40%, 80% { opacity: .85; scale: 1; } 100% { opacity: 0; scale: 1.3 1; } }
+@keyframes ultimate-speed { 0% { opacity: 0; transform: translateX(-10%); } 40% { opacity: 1; } 100% { opacity: 0; transform: translateX(10%); } }
+@keyframes ultimate-slash { 0% { opacity: 0; clip-path: inset(80% 75% 0 0); } 65% { opacity: 1; clip-path: inset(0); } 100% { opacity: 0; clip-path: inset(0); } }
+@keyframes ultimate-impact { 0% { opacity: 0; scale: .1; } 15% { opacity: 1; } 100% { opacity: 0; scale: 1.8; } }
+@keyframes ultimate-spark { 0% { opacity: 0; transform: rotate(var(--spark-angle)) translateX(0); } 12% { opacity: 1; } 100% { opacity: 0; transform: rotate(var(--spark-angle)) translateX(var(--spark-distance)) rotate(110deg); } }
+@keyframes ultimate-callout { 0% { opacity: 0; scale: 1.25; } 20%, 75% { opacity: 1; scale: 1; } 100% { opacity: 0; scale: 1; } }
+@keyframes ultimate-shake { 0%, 100% { transform: translate(0); } 15% { transform: translate(-7px, 3px); } 30% { transform: translate(6px, -4px); } 50% { transform: translate(-4px, -2px); } 70% { transform: translate(3px, 2px); } }
+@media (prefers-reduced-motion: reduce) {
+  .ultimate-fx *, .is-ultimate .battle-backdrop, .is-ultimate .boss-fighter { animation-timing-function: steps(1, end); }
+  .ultimate-rune, .ultimate-pillar, .ultimate-speedlines, .ultimate-blade, .ultimate-impact, .ultimate-sparks { display: none; }
+  .is-ultimate .battle-backdrop, .is-ultimate .boss-fighter { animation: none; }
+  .is-ultimate .player-fighter.is-attacking { animation: none; }
+}
+
+.demo-controls { max-width: min(420px, calc(100vw - 16px)); max-height: 65vh; overflow-y: auto; font-size: 12px; }
+.demo-controls summary { cursor: pointer; }
+.demo-controls button { margin: 4px 3px 4px 0; padding: 5px 8px; border: 1px solid #69715b; background: #303c2b; border-radius: 3px; }
+.demo-controls button:disabled { opacity: .4; cursor: default; }
+.demo-level-controls { margin-top: 8px; padding-top: 8px; border-top: 1px solid #65715b; }
+.demo-level-controls button { display: block; width: 100%; text-align: left; }
+
+.progress-save-status { position: fixed; z-index: 65; top: 12px; left: 50%; translate: -50% 0; display: flex; align-items: center; gap: 6px; max-width: calc(100vw - 24px); padding: 6px 10px; border: 1px solid #64716577; border-radius: 20px; background: #121b18ed; color: #c7d4bf; font: 11px/1.4 "DM Sans", sans-serif; pointer-events: none; }
+.progress-save-status i { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: #83c88f; }
+.progress-save-status.status-saving i { background: #efc86b; }
+.progress-save-status.status-error, .progress-save-status.status-conflict { color: #ffcfb9; border-color: #b8734f; }
+.progress-save-status.status-error i, .progress-save-status.status-conflict i { background: #ff9873; }
+@media (max-width: 800px) { .progress-save-status { top: 90px; font-size: 10px; } }

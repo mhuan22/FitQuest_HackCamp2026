@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { loadSave, type SaveData } from "./progression";
+import { loadSave, normalizeSave, type SaveData } from "./progression";
 import { saveCloudProgress, SaveConflictError } from "./cloudSave";
+import { readRecovery, writeRecovery, clearRecovery, type PendingSave } from "./saveRecovery";
 
-export function useProgress(userId: string | undefined, initialSave: SaveData | undefined, initialRevision: number, modelCount: number) {
-  const [save, setSave] = useState(() => initialSave ?? loadSave(modelCount));
-  const [status, setStatus] = useState<"saved" | "saving" | "error" | "conflict">("saved");
+export function useProgress(userId: string | undefined, initialSave: SaveData | undefined, initialRevision: number, storageKey = "ironvale-save") {
+  const [initial] = useState(() => {
+    if (userId && !initialSave) throw new Error("Account progress must finish loading before the game starts.");
+    const cloud = initialSave ? normalizeSave(initialSave) : loadSave(storageKey);
+    const recovery = userId ? readRecovery(userId) : null;
+    return { cloud, recovery };
+  });
+  const [save, setSave] = useState(() => initial.recovery?.latestSave ?? initial.recovery?.save ?? initial.cloud);
+  const [status, setStatus] = useState<"saved" | "saving" | "error" | "conflict">(initial.recovery ? "saving" : "saved");
   const [error, setError] = useState("");
   const [needsAttention, setNeedsAttention] = useState(false);
   const current = useRef(save);
-  const confirmed = useRef(JSON.stringify(save));
-  const revision = useRef(initialRevision);
-  const pending = useRef<{ save: SaveData; id: string } | null>(null);
+  const confirmed = useRef(JSON.stringify(initial.cloud));
+  const revision = useRef(initial.recovery?.revision ?? initialRevision);
+  const pending = useRef<PendingSave | null>(initial.recovery);
   const running = useRef(false);
   const blocked = useRef(false);
   const alive = useRef(true);
@@ -25,17 +32,21 @@ export function useProgress(userId: string | undefined, initialSave: SaveData | 
     running.current = true;
     try {
       while (alive.current && (pending.current || JSON.stringify(current.current) !== confirmed.current)) {
-        pending.current ??= { save: current.current, id: userId ? crypto.randomUUID() : "guest" };
+        pending.current ??= { save: current.current, id: userId ? crypto.randomUUID() : "guest", revision: revision.current };
         const mutation = pending.current;
         setStatus("saving");
         if (userId) {
-          revision.current = await saveCloudProgress(mutation.save, revision.current, mutation.id);
+          // Keep the exact request (including its original revision and UUID)
+          // until acknowledged. A reload can safely retry an uncertain upload.
+          writeRecovery(userId, { ...mutation, latestSave: current.current });
+          revision.current = await saveCloudProgress(mutation.save, mutation.revision, mutation.id);
         } else {
-          localStorage.setItem("ironvale-save", JSON.stringify(mutation.save));
+          localStorage.setItem(storageKey, JSON.stringify(mutation.save));
         }
         if (!alive.current) return;
         confirmed.current = JSON.stringify(mutation.save);
         pending.current = null;
+        if (userId) clearRecovery(userId);
       }
       if (alive.current) { setStatus("saved"); setError(""); setNeedsAttention(false); }
     } catch (reason) {
@@ -45,9 +56,21 @@ export function useProgress(userId: string | undefined, initialSave: SaveData | 
       setStatus(reason instanceof SaveConflictError ? "conflict" : "error");
       setError(reason && typeof reason === "object" && "message" in reason ? String(reason.message) : "Progress could not be saved. Check your connection and retry.");
     } finally { running.current = false; }
-  }, [userId]);
+  }, [userId, storageKey]);
 
-  useEffect(() => { current.current = save; void flush(); }, [save, flush]);
+  useEffect(() => {
+    current.current = save;
+    try {
+      if (userId && pending.current) writeRecovery(userId, { ...pending.current, latestSave: save });
+    } catch {
+      blocked.current = true;
+      setNeedsAttention(true);
+      setStatus("error");
+      setError("Unable to keep a recovery copy. Free some browser storage, then retry saving.");
+      return;
+    }
+    void flush();
+  }, [save, flush, userId]);
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
       if (pending.current || JSON.stringify(current.current) !== confirmed.current) {
@@ -58,7 +81,20 @@ export function useProgress(userId: string | undefined, initialSave: SaveData | 
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, []);
+  useEffect(() => {
+    const reconnect = () => {
+      if (!blocked.current) return;
+      // Conflicts need an explicit reload, never an automatic overwrite.
+      if (status !== "conflict") { blocked.current = false; void flush(); }
+    };
+    window.addEventListener("online", reconnect);
+    return () => window.removeEventListener("online", reconnect);
+  }, [flush, status]);
 
   const visibleStatus = status === "saved" && JSON.stringify(save) !== confirmed.current ? "saving" : status;
-  return { save, setSave, status: visibleStatus, error, blocked: needsAttention, retry: () => { blocked.current = false; void flush(); } };
+  return {
+    save, setSave, status: visibleStatus, error, blocked: needsAttention,
+    retry: () => { if (status !== "conflict") { blocked.current = false; void flush(); } },
+    discardRecovery: () => { if (userId) clearRecovery(userId); },
+  };
 }

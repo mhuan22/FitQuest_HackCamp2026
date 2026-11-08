@@ -47,12 +47,15 @@ export default function AuthScreen({ onGuest }: { onGuest: () => void }) {
           setNotice(alreadyRegistered);
           return;
         }
-        setNotice("Check your email to confirm your account, then log in with your username and password.");
+        setNotice(data.session ? "Account created. Loading your adventure…" : "Check your email to confirm your account, then log in with your username and password.");
       } else {
         await loginWithUsername(username, password);
       }
     } catch (reason) {
-      setNotice(reason instanceof Error ? reason.message : "Unable to connect. Please try again.");
+      const code = reason && typeof reason === "object" && "code" in reason ? reason.code : undefined;
+      setNotice(code === "over_email_send_rate_limit"
+        ? "Email sending limit reached. Try again later, or log in with an existing verified account."
+        : reason instanceof Error ? reason.message : "Unable to connect. Please try again.");
     } finally { setPending(false); }
   }
 
