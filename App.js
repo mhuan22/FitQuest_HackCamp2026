@@ -28,6 +28,8 @@ export default function App() {
 function TrainingLab() {
   const [exercise, setExercise] = useState("curl");
   const [reps, setReps] = useState(0);
+  const [durationMs, setDurationMs] = useState(0);
+  const timed = exercises[exercise].timed;
   const [stats, setStats] = useState(INITIAL_STATS);
   const [running, setRunning] = useState(false);
   const [pending, setPending] = useState(false);
@@ -59,15 +61,21 @@ function TrainingLab() {
     console.log("Reps:", count);
   }, []);
 
+  const onDuration = useCallback(({ durationMs: total }) => setDurationMs(total), []);
+
   const onError = useCallback((message) => {
     setRunning(false);
     setStatus("CAMERA ERROR");
     setError(message);
   }, []);
-  const onStatus = useCallback(
-    (phase) => setStatus(phase === "framing" ? "ADJUST FRAME" : "TRACKING"),
-    []
-  );
+  const onStatus = useCallback((phase) => {
+    const labels = {
+      framing: "ADJUST FRAME",
+      searching: "WAITING FOR MOTION",
+      moving: "MOVEMENT DETECTED",
+    };
+    setStatus(labels[phase] ?? "TRACKING");
+  }, []);
 
   async function start() {
     setPending(true);
@@ -81,6 +89,7 @@ function TrainingLab() {
       }
       if (!active.current) return;
       setReps(0);
+      setDurationMs(0);
       setStatus("STARTING");
       setRunning(true);
     } catch {
@@ -94,6 +103,7 @@ function TrainingLab() {
     if (exercise === id) return;
     setExercise(id);
     setReps(0);
+    setDurationMs(0);
     setError("");
     setStatus("IDLE");
   }
@@ -113,7 +123,9 @@ function TrainingLab() {
             Training Lab
           </Text>
           <Text style={styles.subhead}>
-            Turn sideways and use your camera to count complete reps.
+            {timed
+              ? "Track active time from any visible part of your body."
+              : "Turn sideways and use your camera to count complete reps."}
           </Text>
 
           <View style={styles.choices}>
@@ -131,7 +143,8 @@ function TrainingLab() {
               >
                 <Text style={styles.choiceName}>{option.label}</Text>
                 <Text style={styles.caption}>
-                  {id === "squat" ? "Speed · Experimental" : option.stat}
+                  {option.stat ?? "Motion timer"}
+                  {id !== "curl" ? " · Experimental" : ""}
                 </Text>
               </Pressable>
             ))}
@@ -141,9 +154,9 @@ function TrainingLab() {
             <View style={styles.metrics}>
               <View style={styles.repLine}>
                 <Text accessibilityLiveRegion="polite" style={styles.count}>
-                  {reps}
+                  {timed ? Math.floor(durationMs / 1000) : reps}
                 </Text>
-                <Text style={styles.caption}>REPS</Text>
+                <Text style={styles.caption}>{timed ? "ACTIVE SEC" : "REPS"}</Text>
               </View>
               <Text style={styles.eyebrow}>{status}</Text>
             </View>
@@ -152,6 +165,7 @@ function TrainingLab() {
                 key={exercise}
                 exercise={exercise}
                 onRep={onRep}
+                onDuration={onDuration}
                 onError={onError}
                 onStatus={onStatus}
               />
@@ -242,9 +256,10 @@ const styles = StyleSheet.create({
     letterSpacing: -1.5,
   },
   subhead: { color: muted, fontSize: 16, lineHeight: 22 },
-  choices: { flexDirection: "row", gap: 10, marginTop: 6 },
+  choices: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 6 },
   choice: {
-    flex: 1,
+    flexGrow: 1,
+    flexBasis: "45%",
     padding: 12,
     gap: 4,
     borderWidth: 1,
