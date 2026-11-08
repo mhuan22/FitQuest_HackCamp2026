@@ -1,33 +1,32 @@
-# Training Lab
+# FitQuest
 
-A React Native camera test screen for the HackCamp Fitness RPG. MediaPipe estimates one person's pose on the device. The same rep counter runs on mobile and in the browser.
+FitQuest is a browser fitness RPG. Train at the gym to improve your stats, then challenge bosses at the arena gate.
 
-## Try it in a browser
+## Run locally
 
-From this folder, run:
+Use Node.js 22 and run:
 
 ```sh
 npm ci
-npm run web
+npm run dev
 ```
 
-Open the localhost URL printed by Expo and select **Start camera**. Allow camera access when prompted. The browser downloads the MediaPipe model and WebAssembly runtime on startup, so it needs an internet connection. Camera frames stay in the browser.
+Open the localhost address printed by Vite and choose **Explore as a guest**. Use `npm run build` for a production build or `npm run preview` to preview that build.
 
-## Try it on a phone
+## Train with the camera
 
-Use a physical device and build with `npm run ios` (Xcode and iOS signing) or `npm run android` (Android SDK and a connected device). The MediaPipe native module requires a custom build. The Expo Go app cannot load it.
+Enter the gym, choose a station and a target, then select **Enable Camera**. Camera access requires localhost or HTTPS. The browser downloads the MediaPipe model and runtime when tracking starts. Camera frames are processed in the browser.
 
-## Check the rep counter
+- Curls, squats, and sit-ups count completed movements and earn 10 XP per rep when you reach the session target.
+- The treadmill measures sustained movement and earns 10 Vitality XP per 30 active seconds when you reach the session target.
+- Pause or finish the session to stop the camera. Resuming keeps the progress already counted.
 
-1. Select **Bicep curl** and face sideways to the camera. Keep the near shoulder, elbow, and wrist visible.
-2. Begin with your arm extended. Try a partial curl and check that the count stays at zero.
-3. Curl to a right angle or tighter, then extend the arm again. Check that the count increases by one. Use a comfortable range and stop if you feel pain.
-4. Move out of frame midway through a curl. Check that you need to start again from the extended position to earn the next rep.
-5. Select **End session**. The preview stops and the final rep count stays on screen.
-6. For the experimental **Squat**, keep your hip, knee, and ankle in view. Start upright, lower until your thigh is near level, then stand tall.
+The local development server offers simulation controls for testing the workout flow. Guest saves are tied to the browser and site address.
 
-Curl scoring uses a projected elbow angle of at least 150°, then at most 90°, then at least 150° again. Each threshold must hold for about 150 ms after smoothing. Low-confidence joints or an interruption clear the current phase while preserving completed reps.
+## Source layout
 
-## Reuse it in the game
-
-Mount `ExerciseTracker` after obtaining camera permission and unmount it when the workout ends or the screen loses focus. Pass `exercise="curl"` or `exercise="squat"` and a stable `onRep={({ exercise, reps }) => …}` callback. The callback runs once per completed rep and reports the session total. Use `onError` to stop the workout and offer a retry. See `App.js` for the permission and session flow.
+- `src/vision` contains MediaPipe camera setup, rep counting, and active-time tracking.
+- `src/training` defines gym stations and workout settings.
+- `src/game` contains player progression and save data.
+- `src/App.tsx` renders the game and connects workouts to progression and combat.
+- `.figma` contains Figma Make configuration for the original export.
