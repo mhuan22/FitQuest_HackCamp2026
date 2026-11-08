@@ -3545,6 +3545,8 @@
 .game-audio-toggle.active { color: #fff0b0; background: linear-gradient(#39847d, #225d58); }
 .game-audio-toggle:not(.active)::after { content: ""; position: absolute; width: 29px; height: 2px; background: #d7c4a3; rotate: -45deg; box-shadow: 0 1px #17151b; }
 .game-audio-toggle:disabled { opacity: .45; cursor: default; }
+.demo-mode-entry { position: fixed; z-index: 64; left: 12px; bottom: 12px; padding: 8px 12px; border: 2px solid #928b71; border-radius: 3px; background: #182018ed; color: #f0dda9; font: 700 11px/1.3 "DM Sans", sans-serif; cursor: pointer; }
+.demo-mode-entry:disabled { opacity: .5; cursor: default; }
 .top-controls { right: 88px; }
 @media (max-width: 800px) {
   .game-audio-toggle { top: 10px; right: 10px; scale: .85; transform-origin: top right; }

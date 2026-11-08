@@ -524,10 +524,12 @@ type GameProps = {
   onLogout: () => Promise<void>;
   onReload: () => void;
   accountError?: string;
+  demoMode?: boolean;
+  onDemoModeChange?: (enabled: boolean) => void;
 };
 
-export default function App({ userId, username, initialSave, initialRevision = 0, onLogout, onReload, accountError }: GameProps) {
-  const demo = !userId && (import.meta.env.DEV || new URLSearchParams(location.search).has("demo"));
+export default function App({ userId, username, initialSave, initialRevision = 0, onLogout, onReload, accountError, demoMode = false, onDemoModeChange }: GameProps) {
+  const demo = demoMode || (!userId && (import.meta.env.DEV || new URLSearchParams(location.search).has("demo")));
   const storageKey = demo ? "ironvale-demo" : "ironvale-save";
   const sessionStartXp = useRef(0);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -1011,7 +1013,10 @@ export default function App({ userId, username, initialSave, initialRevision = 0
       title={save.sound ? "Mute music and effects" : "Enable music and effects"} disabled={saveBlocked || loggingOut}
       onClick={() => setSave(s => ({ ...s, sound: !s.sound }))}><PixelIcon type="sound" /></button>
     <main inert={saveBlocked || loggingOut || undefined} className={`game-shell scene-${scene} ${transition ? "is-transitioning" : ""}`}>
+      {userId && onDemoModeChange && <button className="demo-mode-entry" disabled={saveStatus !== "saved" || exercise || scene === "battle" || loggingOut}
+        onClick={() => onDemoModeChange(true)}>Open Demo Controls</button>}
       {demo && <details className="demo-controls" style={{position:"fixed",bottom:8,left:8,zIndex:9999,background:"#182018",color:"white",padding:12}}><summary>Demo Controls · Separate Save</summary>
+        {demoMode && <><p>Testing with a separate local save. Your account progress is unchanged.</p><button disabled={exercise || scene === "battle" || saveStatus !== "saved"} onClick={() => onDemoModeChange?.(false)}>Return to Account Progress</button></>}
         <p>{demoDate.toLocaleDateString()} · Training streak: {currentStreak(save, demoDate)} days</p>
         <p>Ultimate: {save.ultimateStacks}/3 stacks · Earn one per 3-day training streak. {daysToUltimate === 0 ? "Stacks full." : `${daysToUltimate} more consecutive training days until the next stack.`}</p>
         <button disabled={exercise || battle.busy} onClick={() => {

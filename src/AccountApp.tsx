@@ -13,6 +13,7 @@ export default function AccountApp() {
   const [session, setSession] = useState<Session | null>(null);
   const [initializing, setInitializing] = useState(!!supabase);
   const [guest, setGuest] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
   const [recovery, setRecovery] = useState(() => new URLSearchParams(window.location.search).get("reset") === "1");
   const [loaded, setLoaded] = useState<(Awaited<ReturnType<typeof loadCloudSave>> & { userId: string }) | null>(null);
   const [error, setError] = useState("");
@@ -66,6 +67,7 @@ export default function AccountApp() {
     setSession(null);
     setLoaded(null);
     setGuest(false);
+    setDemoMode(false);
     setRecovery(false);
     window.history.replaceState(null, "", window.location.pathname);
   }
@@ -103,9 +105,10 @@ export default function AccountApp() {
       {error && <><p role="alert">{error}</p><button className="pixel-button" onClick={() => setAttempt(n => n + 1)}>RETRY</button></>}
       <button className="auth-guest" onClick={() => void logout()}>Log out</button>
     </AccountPanel>;
-    return <Game key={`${loaded.userId}:${attempt}`} userId={loaded.userId} username={loaded.username}
-      initialSave={loaded.save} initialRevision={loaded.revision} onLogout={logout}
-      onReload={() => { setLoaded(null); setAttempt(n => n + 1); }} accountError={error} />;
+    return <Game key={`${loaded.userId}:${attempt}:${demoMode ? "demo" : "account"}`} userId={demoMode ? undefined : loaded.userId} username={loaded.username}
+      initialSave={demoMode ? undefined : loaded.save} initialRevision={demoMode ? 0 : loaded.revision} onLogout={logout}
+      onReload={() => { setLoaded(null); setAttempt(n => n + 1); }} accountError={error}
+      demoMode={demoMode} onDemoModeChange={setDemoMode} />;
   }
   if (guest) return <Game key="guest" onLogout={logout} onReload={() => window.location.reload()} />;
   return <>{error && <p className="account-notice" role="alert">{error}</p>}<AuthScreen onGuest={() => { setError(""); setGuest(true); }} /></>;
