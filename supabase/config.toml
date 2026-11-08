@@ -1,0 +1,5 @@
+project_id = "fitquest"
+
+# Login must be callable before the user has a session.
+[functions.username-login]
+verify_jwt = false
