@@ -1,15 +1,14 @@
-
 export const INITIAL_STATS = {
   strength: { level: 1, xp: 0 },
   speed: { level: 1, xp: 0 },
   defense: { level: 1, xp: 0 },
-  endurance: { level: 1, xp: 0 }
+  endurance: { level: 1, xp: 0 },
 };
 
 const exerciseToStat = {
   curl: "strength",
   squat: "speed",
-  sitUp: "defense"
+  situp: "defense",
 };
 
 export function addXP(stats, statName, amount) {
@@ -28,8 +27,8 @@ export function addXP(stats, statName, amount) {
     ...stats,
     [statName]: {
       level,
-      xp: level === 10 ? 0 : xp
-    }
+      xp: level === 10 ? 0 : xp,
+    },
   };
 }
 
@@ -43,9 +42,7 @@ export function rewardRep(stats, exercise) {
 
 // Call once after a verified running session.
 export function rewardRunning(stats, verifiedSeconds) {
-  const xp = Math.floor(
-    Math.max(0, verifiedSeconds) / 30
-  ) * 10;
+  const xp = Math.floor(Math.max(0, verifiedSeconds) / 30) * 10;
 
   return addXP(stats, "endurance", xp);
 }

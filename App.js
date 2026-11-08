@@ -12,7 +12,11 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import ExerciseTracker from "./src/components/ExerciseTracker";
 import { useCameraAccess } from "./src/components/PoseCamera";
 import { exercises } from "./src/components/repCounter";
-import { INITIAL_STATS, rewardRep } from "./src/game/progression";
+import {
+  INITIAL_STATS,
+  rewardRep,
+  rewardRunning,
+} from "./src/game/progression";
 
 const green = "#bbfa75";
 const muted = "#aabbb0";
@@ -29,6 +33,7 @@ function TrainingLab() {
   const [exercise, setExercise] = useState("curl");
   const [reps, setReps] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
+  const awardedRunningBlocks = useRef(0);
   const timed = exercises[exercise].timed;
   const [stats, setStats] = useState(INITIAL_STATS);
   const [running, setRunning] = useState(false);
@@ -61,7 +66,25 @@ function TrainingLab() {
     console.log("Reps:", count);
   }, []);
 
-  const onDuration = useCallback(({ durationMs: total }) => setDurationMs(total), []);
+  const onDuration = useCallback(({ durationMs: total }) => {
+    // Update the displayed running duration
+    setDurationMs(total);
+
+    // Number of completed 30-second intervals
+    const completedBlocks = Math.floor(total / 30000);
+
+    // Count only intervals that haven't earned XP yet
+    const newBlocks = completedBlocks - awardedRunningBlocks.current;
+
+    if (newBlocks > 0) {
+      awardedRunningBlocks.current = completedBlocks;
+
+      // Award 10 XP per new 30-second interval
+      setStats((current) => rewardRunning(current, newBlocks * 30));
+
+      console.log("Endurance XP gained:", newBlocks * 10);
+    }
+  }, []);
 
   const onError = useCallback((message) => {
     setRunning(false);
@@ -90,6 +113,7 @@ function TrainingLab() {
       if (!active.current) return;
       setReps(0);
       setDurationMs(0);
+      awardedRunningBlocks.current = 0;
       setStatus("STARTING");
       setRunning(true);
     } catch {
@@ -104,6 +128,7 @@ function TrainingLab() {
     setExercise(id);
     setReps(0);
     setDurationMs(0);
+    awardedRunningBlocks.current = 0;
     setError("");
     setStatus("IDLE");
   }
@@ -156,7 +181,9 @@ function TrainingLab() {
                 <Text accessibilityLiveRegion="polite" style={styles.count}>
                   {timed ? Math.floor(durationMs / 1000) : reps}
                 </Text>
-                <Text style={styles.caption}>{timed ? "ACTIVE SEC" : "REPS"}</Text>
+                <Text style={styles.caption}>
+                  {timed ? "ACTIVE SEC" : "REPS"}
+                </Text>
               </View>
               <Text style={styles.eyebrow}>{status}</Text>
             </View>
