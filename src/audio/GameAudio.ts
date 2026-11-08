@@ -1,6 +1,6 @@
 export type MusicTrack = "base" | "training" | "battle" | "dark-battle";
 export type SoundEffect = "click" | "rep" | "charge" | "guard" | "hit" | "heavy" | "magic" | "hurt" | "victory" | "level-up" | "complete" | "defeat" | "slash" | "ultimate";
-type Environment = { enabled: boolean; track: MusicTrack | null; duck: number; suspended: boolean };
+type Environment = { enabled: boolean; track: MusicTrack | null; duck: number; suspended: boolean; volume?: number };
 type MusicVoice = { track: MusicTrack; element: HTMLAudioElement; gain: number };
 const MUSIC_VOLUME = 0.24;
 const effectFile = (effect: SoundEffect) => effect === "slash" ? "guard" : effect === "ultimate" ? "heavy" : effect;
@@ -15,13 +15,14 @@ export class GameAudio {
   private generation = 0;
   private active: MusicVoice | null = null;
   private music = new Set<MusicVoice>();
-  private effects = new Set<HTMLAudioElement>();
+  private effects = new Map<HTMLAudioElement, number>();
   private fades = new Map<MusicVoice, ReturnType<typeof setInterval>>();
   private recent = new Map<SoundEffect, number>();
   private preloads = new Map<string, HTMLAudioElement>();
 
   constructor(private create: (url: string) => HTMLAudioElement = url => new Audio(url), private base = import.meta.env.BASE_URL) {}
   private get audible() { return !this.disposed && this.environment.enabled && !this.environment.suspended && !this.hidden; }
+  private get volume() { return this.environment.volume ?? 1; }
   private url(path: string) { return `${this.base}audio/${path}`; }
 
   configure(environment: Environment) {
@@ -29,6 +30,7 @@ export class GameAudio {
     this.environment = environment;
     if (!this.audible) { this.stopAll(); return; }
     for (const voice of this.music) this.applyVolume(voice);
+    for (const [element, gain] of this.effects) element.volume = gain * this.volume;
     this.syncMusic();
   }
   unlock() {
@@ -41,7 +43,7 @@ export class GameAudio {
     if (hidden) this.stopAll(); else this.syncMusic();
   }
   private applyVolume(voice: MusicVoice) {
-    voice.element.volume = Math.max(0, Math.min(1, MUSIC_VOLUME * this.environment.duck * voice.gain));
+    voice.element.volume = Math.max(0, Math.min(1, MUSIC_VOLUME * this.environment.duck * voice.gain * this.volume));
   }
   private retire(voice: MusicVoice) {
     const timer = this.fades.get(voice);
@@ -110,15 +112,16 @@ export class GameAudio {
     if (now - (this.recent.get(effect) ?? -Infinity) < cooldown) return;
     this.recent.set(effect, now);
     if (this.effects.size >= 6) {
-      const oldest = this.effects.values().next().value;
+      const oldest = this.effects.keys().next().value;
       if (oldest) { oldest.pause(); this.effects.delete(oldest); }
     }
     const generation = this.generation;
     const element = this.create(this.url(`effects/${effectFile(effect)}.wav`));
-    element.volume = effectVolume[effect] ?? 0.45;
+    const gain = effectVolume[effect] ?? 0.45;
+    element.volume = gain * this.volume;
     element.playbackRate = rate;
     element.preservesPitch = false;
-    this.effects.add(element);
+    this.effects.set(element, gain);
     const release = () => this.effects.delete(element);
     element.addEventListener("ended", release, { once: true });
     element.addEventListener("error", release, { once: true });
@@ -129,7 +132,7 @@ export class GameAudio {
   private stopAll() {
     ++this.generation;
     for (const voice of [...this.music]) this.retire(voice);
-    for (const element of this.effects) element.pause();
+    for (const element of this.effects.keys()) element.pause();
     this.effects.clear(); this.recent.clear();
   }
   dispose() {

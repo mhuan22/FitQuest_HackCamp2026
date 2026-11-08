@@ -3541,7 +3541,13 @@
 .progress-save-status.status-error i, .progress-save-status.status-conflict i { background: #ff9873; }
 @media (max-width: 800px) { .progress-save-status { top: 90px; font-size: 10px; } }
 
-.game-audio-toggle { position: fixed; z-index: 65; top: 24px; right: 24px; display: grid; place-items: center; width: 46px; height: 46px; color: #aa9b7f; background: #292a33; border: 3px solid #12151a; box-shadow: inset 0 0 0 2px #5c5861, 3px 3px #0005; }
+.game-audio-controls { position: fixed; z-index: 65; top: 24px; right: 24px; }
+.game-audio-toggle { position: relative; display: grid; place-items: center; width: 46px; height: 46px; color: #aa9b7f; background: #292a33; border: 3px solid #12151a; box-shadow: inset 0 0 0 2px #5c5861, 3px 3px #0005; }
+.game-audio-volume { visibility: hidden; position: absolute; top: 100%; right: 0; display: grid; gap: 6px; width: 156px; padding: 10px; color: #fff0b0; background: #292a33; border: 3px solid #12151a; box-shadow: 3px 3px #0005; font-size: 12px; }
+.game-audio-controls:hover .game-audio-volume,
+.game-audio-controls:has(:focus-visible) .game-audio-volume { visibility: visible; }
+.game-audio-volume > span { display: flex; justify-content: space-between; }
+.game-audio-volume input { width: 100%; accent-color: #efc86b; }
 .game-audio-toggle.active { color: #fff0b0; background: linear-gradient(#39847d, #225d58); }
 .game-audio-toggle:not(.active)::after { content: ""; position: absolute; width: 29px; height: 2px; background: #d7c4a3; rotate: -45deg; box-shadow: 0 1px #17151b; }
 .game-audio-toggle:disabled { opacity: .45; cursor: default; }
@@ -3549,7 +3555,7 @@
 .demo-mode-entry:disabled { opacity: .5; cursor: default; }
 .top-controls { right: 88px; }
 @media (max-width: 800px) {
-  .game-audio-toggle { top: 10px; right: 10px; scale: .85; transform-origin: top right; }
+  .game-audio-controls { top: 10px; right: 10px; scale: .85; transform-origin: top right; }
   .top-controls { right: 62px; }
 }
 .ultimate-stack-note { display: block; margin-top: 5px; color: #c7c9dd; font: 6px/1.6 var(--pixel); white-space: nowrap; }

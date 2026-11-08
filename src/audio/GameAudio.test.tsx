@@ -43,6 +43,16 @@ describe("game audio playback", () => {
     expect(music()).toHaveLength(1); expect(music()[0].volume).toBeCloseTo(.24*.18);
     audio.configure(environment); expect(music()[0].volume).toBeCloseTo(.24);
   });
+  it("adjusts playing music and effects without restarting playback", async () => {
+    audio.configure(environment); audio.unlock(); await settle(); await vi.advanceTimersByTimeAsync(650);
+    audio.play("rep"); await settle();
+    audio.configure({ ...environment, duck: .5, volume: .25 });
+    expect(music()).toHaveLength(1);
+    expect(music()[0].volume).toBeCloseTo(.24 * .5 * .25);
+    expect(playingEffects()[0].volume).toBeCloseTo(.36 * .25);
+    audio.play("guard"); await settle();
+    expect(playingEffects()[1].volume).toBeCloseTo(.45 * .25);
+  });
   it("recovers from refused autoplay on the next user gesture", async () => {
     rejectMusic = true; audio.configure(environment); audio.unlock(); await settle();
     expect(music()[0].paused).toBe(true);

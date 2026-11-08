@@ -634,7 +634,13 @@ export default function App({ userId, username, initialSave, initialRevision = 0
   const owlAttackPattern = (battle.bossAttackCount + 1) % 2;
   const shellbackAttackPattern = (battle.bossAttackCount + 2) % 3;
   const music = scene === "battle" ? battle.result ? null : battle.boss === "golem" || battle.boss === "shellback" ? "dark-battle" : "battle" : scene === "gym" ? "training" : "base";
-  const audio = useGameAudio(save.sound, music, battle.ultimate ? 0.18 : exercise ? 0.55 : 1, (exercise && paused) || saveBlocked || loggingOut);
+  const [volume, setVolume] = useState(() => {
+    try {
+      const stored = Number(localStorage.getItem("ironvale-volume") ?? 100);
+      return Number.isInteger(stored) && stored >= 0 && stored <= 100 ? stored : 100;
+    } catch { return 100; }
+  });
+  const audio = useGameAudio(save.sound, music, battle.ultimate ? 0.18 : exercise ? 0.55 : 1, (exercise && paused) || saveBlocked || loggingOut, volume / 100);
   useEffect(() => {
     if (scene === "battle" && battle.result) audio.play(battle.result === "victory" ? "victory" : "defeat");
   }, [audio, scene, battle.result]);
@@ -1009,9 +1015,20 @@ export default function App({ userId, username, initialSave, initialRevision = 0
       <i aria-hidden="true" />
       {saveStatus === "saving" ? "Saving progress…" : saveStatus === "error" ? "Save failed · recovery kept on this device" : saveStatus === "conflict" ? "Cloud save changed · reload required" : userId ? "Progress saved to account" : demo ? "Demo progress saved on this device" : "Guest progress saved on this device"}
     </div>
-    <button className={`game-audio-toggle ${save.sound ? "active" : ""}`} aria-label="Toggle sound" aria-pressed={save.sound}
-      title={save.sound ? "Mute music and effects" : "Enable music and effects"} disabled={saveBlocked || loggingOut}
-      onClick={() => setSave(s => ({ ...s, sound: !s.sound }))}><PixelIcon type="sound" /></button>
+    <div className="game-audio-controls">
+      <button className={`game-audio-toggle ${save.sound ? "active" : ""}`} aria-label="Toggle sound" aria-pressed={save.sound}
+        title={save.sound ? "Mute music and effects" : "Enable music and effects"} disabled={saveBlocked || loggingOut}
+        onClick={() => setSave(s => ({ ...s, sound: !s.sound }))}><PixelIcon type="sound" /></button>
+      <label className="game-audio-volume">
+        <span>Volume <span aria-hidden="true">{volume}%</span></span>
+        <input type="range" min={0} max={100} value={volume} aria-valuetext={`${volume}%`}
+          disabled={saveBlocked || loggingOut} onChange={event => {
+            const next = event.currentTarget.valueAsNumber;
+            setVolume(next);
+            try { localStorage.setItem("ironvale-volume", String(next)); } catch { /* Keep the in-session setting. */ }
+          }} />
+      </label>
+    </div>
     <main inert={saveBlocked || loggingOut || undefined} className={`game-shell scene-${scene} ${transition ? "is-transitioning" : ""}`}>
       {userId && onDemoModeChange && <button className="demo-mode-entry" disabled={saveStatus !== "saved" || exercise || scene === "battle" || loggingOut}
         onClick={() => onDemoModeChange(true)}>Open Demo Controls</button>}

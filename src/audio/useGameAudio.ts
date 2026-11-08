@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { GameAudio, type MusicTrack } from "./GameAudio";
 
-export function useGameAudio(enabled: boolean, track: MusicTrack | null, duck: number, suspended: boolean) {
+export function useGameAudio(enabled: boolean, track: MusicTrack | null, duck: number, suspended: boolean, volume = 1) {
   const [audio] = useState(() => new GameAudio());
   useEffect(() => {
-    audio.configure({ enabled, track, duck, suspended });
-  }, [audio, enabled, track, duck, suspended]);
+    audio.configure({ enabled, track, duck, suspended, volume });
+  }, [audio, enabled, track, duck, suspended, volume]);
   useEffect(() => {
     const unlock = () => audio.unlock();
     const visibility = () => audio.setHidden(document.hidden);
