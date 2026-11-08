@@ -8,18 +8,24 @@ export function useProgress(userId: string | undefined, initialSave: SaveData | 
     if (userId && !initialSave) throw new Error("Account progress must finish loading before the game starts.");
     const cloud = initialSave ? normalizeSave(initialSave) : loadSave(storageKey);
     const recovery = userId ? readRecovery(userId) : null;
-    return { cloud, recovery };
+    // An upload whose response was lost may already be in the cloud. Keep
+    // retrying that exact mutation so the server can acknowledge it safely.
+    const mayBeAcknowledged = recovery && initialRevision === recovery.revision + 1 &&
+      JSON.stringify(cloud) === JSON.stringify(recovery.save);
+    const conflict = !!recovery && recovery.revision !== initialRevision && !mayBeAcknowledged;
+    return { cloud, recovery, conflict };
   });
   const [save, setSave] = useState(() => initial.recovery?.latestSave ?? initial.recovery?.save ?? initial.cloud);
-  const [status, setStatus] = useState<"saved" | "saving" | "error" | "conflict">(initial.recovery ? "saving" : "saved");
-  const [error, setError] = useState("");
-  const [needsAttention, setNeedsAttention] = useState(false);
+  const [status, setStatus] = useState<"saved" | "saving" | "error" | "conflict">(initial.conflict ? "conflict" : initial.recovery ? "saving" : "saved");
+  const [error, setError] = useState(initial.conflict
+    ? `This device has a pending save from revision ${initial.recovery!.revision}, but your account is now at revision ${initialRevision}. Reload the cloud save to continue.` : "");
+  const [needsAttention, setNeedsAttention] = useState(initial.conflict);
   const current = useRef(save);
   const confirmed = useRef(JSON.stringify(initial.cloud));
   const revision = useRef(initial.recovery?.revision ?? initialRevision);
   const pending = useRef<PendingSave | null>(initial.recovery);
   const running = useRef(false);
-  const blocked = useRef(false);
+  const blocked = useRef(initial.conflict);
   const alive = useRef(true);
 
   useEffect(() => {
@@ -60,6 +66,10 @@ export function useProgress(userId: string | undefined, initialSave: SaveData | 
 
   useEffect(() => {
     current.current = save;
+    // A stale recovery is handled by the conflict flow. In StrictMode this
+    // effect runs again after that flow archives the pending request; writing
+    // it here would resurrect the stale save and cause a reload loop.
+    if (initial.conflict) return;
     try {
       if (userId && pending.current) writeRecovery(userId, { ...pending.current, latestSave: save });
     } catch {
@@ -70,7 +80,7 @@ export function useProgress(userId: string | undefined, initialSave: SaveData | 
       return;
     }
     void flush();
-  }, [save, flush, userId]);
+  }, [save, flush, userId, initial.conflict]);
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
       if (pending.current || JSON.stringify(current.current) !== confirmed.current) {

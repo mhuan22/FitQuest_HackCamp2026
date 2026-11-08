@@ -13,13 +13,22 @@ export function requireSupabase() {
 
 export async function loginWithUsername(username: string, password: string) {
   const client = requireSupabase();
-  const response = await fetch(`${url}/functions/v1/username-login`, {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  let body;
+  try {
+    const response = await fetch(`${url}/functions/v1/username-login`, {
     method: "POST",
     headers: { "Content-Type": "application/json", apikey: key },
     body: JSON.stringify({ username: username.trim(), password }),
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(body?.error || "Unable to log in. Please try again.");
+    signal: controller.signal,
+    });
+    body = await response.json();
+    if (!response.ok) throw new Error(body?.error || "Unable to log in. Please try again.");
+  } catch (reason) {
+    if (controller.signal.aborted) throw new Error("The login service took too long to respond. Please try again in a moment.");
+    throw reason;
+  } finally { clearTimeout(timeout); }
   if (!body?.access_token || !body?.refresh_token) throw new Error("The login service returned an invalid response.");
   const { error } = await client.auth.setSession(body);
   if (error) throw error;

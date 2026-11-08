@@ -5,6 +5,7 @@ import { ULTIMATE } from "./game/ultimate";
 import { useAnimationFrame } from "./game/useAnimationFrame";
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { useProgress } from "./game/useProgress";
+import { archiveRecovery } from "./game/saveRecovery";
 import { DEFAULT_SAVE, currentStreak, xpProgress, characterLevel, characterXpProgress, consumeUltimate, daysUntilUltimate, MAX_ULTIMATE_STACKS, trainingDay, nextDemoTrainingDay, levelFromXp, levelProgress, STAT_INFO, type SaveData } from "./game/progression";
 import { FREE_RUN_IDLE_MS, RUN_BLOCK_SECONDS, STATIONS, XP_PER_UNIT, freeRunXp, type CharacterAction, type StationKey } from "./training/stations";
 import { clearDemoWorkouts, useGuildTraining } from "./training/guildTraining";
@@ -558,7 +559,23 @@ export default function App({ userId, username, initialSave, initialRevision = 0
   useEffect(() => {
     if (demo) { try { localStorage.setItem("ironvale-demo-date", demoDate.toISOString()); } catch { /* Gameplay saves report storage failures separately. */ } }
   }, [demo, demoDate]);
-  const { save, setSave, status: saveStatus, error: saveError, blocked: saveBlocked, retry, discardRecovery } = useProgress(userId, initialSave, initialRevision, storageKey);
+  const { save, setSave, status: saveStatus, error: saveError, blocked: saveBlocked, retry } = useProgress(userId, initialSave, initialRevision, storageKey);
+  const [conflictRecoveryError, setConflictRecoveryError] = useState("");
+  const recoveringConflict = useRef(false);
+  const recoverConflict = useCallback(() => {
+    if (!userId || recoveringConflict.current) return;
+    try {
+      archiveRecovery(userId);
+      recoveringConflict.current = true;
+      setConflictRecoveryError("");
+      onReload();
+    } catch {
+      setConflictRecoveryError("Unable to back up your local progress. Free some browser storage, then retry loading the cloud save.");
+    }
+  }, [userId, onReload]);
+  useEffect(() => {
+    if (saveStatus === "conflict") recoverConflict();
+  }, [saveStatus, recoverConflict]);
   const { record: recordWorkout, sync: syncWorkouts, syncError: workoutSyncError } = useGuildTraining(userId, demo);
   const [loggingOut, setLoggingOut] = useState(false);
   const [scene, setScene] = useState<Scene>("base");
@@ -1060,7 +1077,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
     {saveBlocked && <div className="save-error-overlay"><section className="pixel-frame account-panel" role="alert">
       <h2>{saveStatus === "conflict" ? "Cloud save changed" : "Progress not saved"}</h2>
       <p>{saveError}</p>
-      {saveStatus === "conflict" ? <><p>Reloading discards unsaved changes on this device and loads the newer cloud save.</p><button className="pixel-button" onClick={() => { discardRecovery(); onReload(); }}>RELOAD CLOUD SAVE</button></> : <button className="pixel-button" disabled={saveStatus === "saving"} onClick={retry}>{saveStatus === "saving" ? "RETRYING…" : "RETRY SAVE"}</button>}
+      {saveStatus === "conflict" ? <><p>Your local changes are backed up on this device before loading the current cloud save.</p>{conflictRecoveryError && <p>{conflictRecoveryError}</p>}<button className="pixel-button" onClick={recoverConflict}>RELOAD CLOUD SAVE</button></> : <button className="pixel-button" disabled={saveStatus === "saving"} onClick={retry}>{saveStatus === "saving" ? "RETRYING…" : "RETRY SAVE"}</button>}
     </section></div>}
     <div className={`progress-save-status status-${saveStatus}`} role="status" aria-live="polite">
       <i aria-hidden="true" />

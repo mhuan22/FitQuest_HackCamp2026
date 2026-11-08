@@ -1,8 +1,10 @@
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { DEFAULT_SAVE, type SaveData } from "./game/progression";
+import { writeRecovery } from "./game/saveRecovery";
+import { SaveConflictError } from "./game/cloudSave";
 const mocks = vi.hoisted(() => ({ audio: { play: vi.fn() }, save: vi.fn(), cameraProgress: null as null | ((amount: number) => void) }));
 vi.mock("./audio/useGameAudio", () => ({ useGameAudio: () => mocks.audio }));
 vi.mock("./game/cloudSave", () => ({ saveCloudProgress: mocks.save, SaveConflictError: class extends Error {} }));
@@ -38,6 +40,35 @@ async function station(selector: string) {
 }
 
 describe("game integration", () => {
+  it("backs up stale recovery and reloads cloud progress instead of replaying the conflicting save", async () => {
+    const id = "12345678-1234-1234-1234-123456789abc";
+    const pending = { save: { ...defaults, strengthXp: 50 }, revision: 0, id };
+    writeRecovery("account-a", pending);
+    const reload = vi.fn();
+    await act(async () => root.render(<StrictMode><App userId="account-a" initialSave={{ ...defaults, strengthXp: 100 }} initialRevision={3} onLogout={async () => {}} onReload={reload} /></StrictMode>));
+    expect(reload).toHaveBeenCalledOnce();
+    expect(mocks.save).not.toHaveBeenCalled();
+    expect(localStorage.getItem("ironvale-pending:account-a")).toBeNull();
+    expect(JSON.parse(localStorage.getItem(`ironvale-conflict:account-a:${id}`)!)).toMatchObject({ ...pending, userId: "account-a" });
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await act(async () => root.render(<App userId="account-a" initialSave={{ ...defaults, strengthXp: 100 }} initialRevision={3} onLogout={async () => {}} onReload={reload} />));
+    expect(host.querySelector(".save-error-overlay")).toBeNull();
+    await click("Toggle sound");
+    expect(mocks.save.mock.calls[0][1]).toBe(3);
+  });
+
+  it("backs up a new save conflict and requests the current cloud save", async () => {
+    const reload = vi.fn();
+    mocks.save.mockRejectedValueOnce(new SaveConflictError());
+    await act(async () => root.render(<App userId="account-a" initialSave={defaults} onLogout={async () => {}} onReload={reload} />));
+    await click("Toggle sound");
+    expect(reload).toHaveBeenCalledOnce();
+    expect(localStorage.getItem("ironvale-pending:account-a")).toBeNull();
+    expect(Object.keys(localStorage).some(key => key.startsWith("ironvale-conflict:account-a:"))).toBe(true);
+    expect(mocks.save).toHaveBeenCalledOnce();
+  });
+
   it("saves earned reps and completed-session streaks for an account without demo shortcuts", async () => {
     await mount(defaults);
     expect(host.querySelector("details.demo-controls")).toBeNull();

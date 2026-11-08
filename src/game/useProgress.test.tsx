@@ -9,8 +9,8 @@ vi.mock("./cloudSave", () => ({ saveCloudProgress: vi.fn(), SaveConflictError: c
 const defaults: SaveData = { ...DEFAULT_SAVE, rewards: [] };
 let root: Root;
 let state: ReturnType<typeof useProgress>;
-function Harness({ userId, storageKey }: { userId?: string; storageKey?: string }) {
-  state = useProgress(userId, userId ? defaults : undefined, 0, storageKey);
+function Harness({ userId, storageKey, initialSave = defaults, initialRevision = 0 }: { userId?: string; storageKey?: string; initialSave?: SaveData; initialRevision?: number }) {
+  state = useProgress(userId, userId ? initialSave : undefined, initialRevision, storageKey);
   return null;
 }
 
@@ -95,6 +95,47 @@ describe("demo save isolation", () => {
 });
 
 describe("durable account recovery", () => {
+  it("detects stale recovery without uploading and resumes at the cloud revision after resolution", async () => {
+    vi.mocked(saveCloudProgress).mockRejectedValueOnce(new Error("Offline"));
+    await act(async () => root.render(<Harness userId="account-a" />));
+    await act(async () => state.setSave({ ...defaults, strengthXp: 50 }));
+    await act(async () => root.unmount());
+    root = createRoot(document.createElement("div"));
+    const cloud = { ...defaults, strengthXp: 100 };
+    await act(async () => root.render(<Harness userId="account-a" initialSave={cloud} initialRevision={3} />));
+    expect(state.status).toBe("conflict");
+    expect(state.blocked).toBe(true);
+    expect(state.error).toContain("revision 0");
+    expect(state.error).toContain("revision 3");
+    await act(async () => { state.retry(); window.dispatchEvent(new Event("online")); });
+    expect(saveCloudProgress).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem("ironvale-pending:account-a")).not.toBeNull();
+    await act(async () => state.discardRecovery());
+    await act(async () => root.unmount());
+    root = createRoot(document.createElement("div"));
+    await act(async () => root.render(<Harness userId="account-a" initialSave={cloud} initialRevision={3} />));
+    expect(state.status).toBe("saved");
+    expect(state.save.strengthXp).toBe(100);
+    vi.mocked(saveCloudProgress).mockResolvedValueOnce(4);
+    await act(async () => state.setSave({ ...cloud, strengthXp: 150 }));
+    expect(vi.mocked(saveCloudProgress).mock.calls[1][1]).toBe(3);
+    expect(state.status).toBe("saved");
+  });
+
+  it("still acknowledges an upload whose response was lost when the cloud revision advanced", async () => {
+    vi.mocked(saveCloudProgress).mockRejectedValueOnce(new Error("Offline")).mockResolvedValueOnce(1);
+    await act(async () => root.render(<Harness userId="account-a" />));
+    const uploaded = { ...defaults, strengthXp: 50 };
+    await act(async () => state.setSave(uploaded));
+    const first = vi.mocked(saveCloudProgress).mock.calls[0];
+    await act(async () => root.unmount());
+    root = createRoot(document.createElement("div"));
+    await act(async () => root.render(<Harness userId="account-a" initialSave={uploaded} initialRevision={1} />));
+    expect(vi.mocked(saveCloudProgress).mock.calls[1]).toEqual(first);
+    expect(state.status).toBe("saved");
+    expect(localStorage.getItem("ironvale-pending:account-a")).toBeNull();
+  });
+
   it("restores a failed upload after refresh and retries the same request", async () => {
     vi.mocked(saveCloudProgress).mockRejectedValueOnce(new Error("Offline")).mockResolvedValue(1);
     await act(async () => root.render(<Harness userId="account-a" />));

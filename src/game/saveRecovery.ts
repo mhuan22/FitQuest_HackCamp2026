@@ -18,3 +18,14 @@ export function writeRecovery(userId: string, mutation: PendingSave) {
 export function clearRecovery(userId: string) {
   localStorage.removeItem(key(userId));
 }
+
+// Preserve the conflicting request separately before allowing the account to
+// load its current cloud save. Backups are never replayed as pending uploads.
+export function archiveRecovery(userId: string) {
+  const raw = localStorage.getItem(key(userId));
+  if (!raw) return;
+  const recovery = readRecovery(userId);
+  if (!recovery) throw new Error("Unable to read the local recovery copy.");
+  localStorage.setItem(`ironvale-conflict:${userId}:${recovery.id}`, raw);
+  clearRecovery(userId);
+}
