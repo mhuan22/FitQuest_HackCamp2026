@@ -2862,10 +2862,10 @@
 }
 
 .stats-dialog {
-  width: min(500px, calc(100vw - 32px));
-  max-height: calc(100vh - 42px);
+  width: min(1020px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
   overflow-y: auto;
-  padding: 40px 34px 28px;
+  padding: 24px 28px;
 }
 
 .stats-identity {
@@ -3561,3 +3561,48 @@
 .ultimate-stack-note { display: block; margin-top: 5px; color: #c7c9dd; font: 6px/1.6 var(--pixel); white-space: nowrap; }
 .ultimate-stack-note .ultimate-earn-hint { display: inline; margin: 0; color: inherit; font: inherit; }
 @media (max-width: 800px) { .ultimate-stack-note .ultimate-earn-hint { display: none; } }
+
+/* Keep the stats heading inside the scroll boundary and use the available width. */
+.stats-overlay { padding: 16px; }
+.stats-dialog > .frame-title {
+  position: static;
+  translate: none;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto 14px;
+  text-align: center;
+  white-space: normal;
+  line-height: 1.5;
+  font-size: 11px;
+}
+.stats-dialog .stats-identity { gap: 16px; padding-bottom: 10px; }
+.stats-dialog .stats-identity > div:last-child { min-width: 0; }
+.stats-dialog .stats-identity h2 { margin: 6px 0; font-size: 18px; overflow-wrap: anywhere; line-height: 1.5; }
+.stats-dialog .stats-identity small { display: block; font-size: 13px; line-height: 1.5; }
+.stats-dialog .stats-note { margin: 10px 0 0; font-size: 13px; line-height: 1.45; }
+.stats-dialog .stats-sheet { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.stats-dialog .stats-sheet-row { min-width: 0; padding: 12px; }
+.stats-dialog .stats-sheet-row > div:first-child { flex-wrap: wrap; gap: 4px 8px; margin-bottom: 7px; font-size: 8px; line-height: 1.5; }
+.stats-dialog .stats-sheet-row strong { white-space: nowrap; }
+.stats-dialog .combat-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.stats-dialog .combat-summary > div { padding: 10px 6px; }
+.stats-dialog .combat-summary span { font-size: 7px; line-height: 1.6; }
+.stats-dialog .combat-summary strong { margin-top: 6px; font-size: 13px; }
+.stats-dialog > p:not(.stats-note) { margin: 8px 0; font-size: 13px; line-height: 1.5; }
+.stats-dialog > .pixel-button { min-height: 42px; margin-top: 12px; }
+@media (max-width: 680px) {
+  .stats-dialog { padding: 16px; }
+  .stats-dialog .stats-sheet,
+  .stats-dialog .combat-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .stats-dialog .stats-portrait { width: 64px; height: 64px; }
+  .stats-dialog .stats-identity { gap: 12px; }
+  .stats-dialog .stats-identity small { font-size: 11px; }
+  .stats-dialog .stats-identity h2 { font-size: 14px; }
+}
+@media (max-height: 600px) and (min-width: 681px) {
+  .stats-dialog { padding: 14px 20px; }
+  .stats-dialog > .frame-title { margin-bottom: 10px; padding: 6px 14px; }
+  .stats-dialog .stats-portrait { width: 56px; height: 56px; }
+  .stats-dialog .stats-sheet-row { padding: 8px; }
+  .stats-dialog .stats-note { margin-top: 8px; font-size: 11px; }
+}

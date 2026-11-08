@@ -1060,7 +1060,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
             </div>
             <div>
               <span>ADVENTURER</span>
-              <strong>{username || "ROOK"}</strong>
+              <strong>{username || "Guest"}</strong>
               <small className={`character-streak ${streakDays > 0 ? "has-streak" : ""}`}
                 title="Complete a training session each day to build your streak."
                 aria-label={`${streakDays} consecutive training ${streakDays === 1 ? "day" : "days"}`}>
@@ -1277,7 +1277,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
       )}
 
       {modal === "stats" && (
-        <div className="overlay compact-overlay">
+        <div className="overlay compact-overlay stats-overlay">
           <Frame title="PLAYER STATS" className="stats-dialog">
             <div className="stats-identity">
               <div className="stats-portrait">
@@ -1285,7 +1285,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
               </div>
               <div>
                 <span>ADVENTURER</span>
-                <h2>ROOK</h2>
+                <h2>{username || "Guest"}</h2>
                 <small>Character Level {characterLevel(save)} · Streak {currentStreak(save, demo ? demoDate : new Date())} days · Ultimate {save.ultimateStacks}/3 stacks · +1 every 3 consecutive training days</small>
               </div>
             </div>
@@ -1633,7 +1633,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
             className={`fighter player-fighter character-progress-target ${battle.action === "attack" ? "is-attacking" : ""}`}
           >
             <div className="combat-hp">
-              <span>ROOK</span>
+              <span>{username || "Guest"}</span>
               <div>
                 <i style={{ width: `${(battle.playerHp / maxHealth) * 100}%` }} />
               </div>
