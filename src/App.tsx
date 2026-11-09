@@ -8,8 +8,6 @@ import { useProgress } from "./game/useProgress";
 import { archiveRecovery } from "./game/saveRecovery";
 import { DEFAULT_SAVE, currentStreak, xpProgress, characterLevel, characterXpProgress, consumeUltimate, daysUntilUltimate, MAX_ULTIMATE_STACKS, trainingDay, nextDemoTrainingDay, levelFromXp, levelProgress, STAT_INFO, type SaveData } from "./game/progression";
 import { FREE_RUN_IDLE_MS, RUN_BLOCK_SECONDS, STATIONS, XP_PER_UNIT, freeRunXp, type CharacterAction, type StationKey } from "./training/stations";
-import { clearDemoWorkouts, useGuildTraining } from "./training/guildTraining";
-import { GuildTrainingReport } from "./training/GuildTrainingReport";
 import WorkoutCamera from "./vision/WorkoutCamera";
 import { exercises } from "./vision/repCounter";
 import golemIdleA from "./assets/bosses/golem/idle-a.png";
@@ -576,10 +574,9 @@ export default function App({ userId, username, initialSave, initialRevision = 0
   useEffect(() => {
     if (saveStatus === "conflict") recoverConflict();
   }, [saveStatus, recoverConflict]);
-  const { record: recordWorkout, sync: syncWorkouts, syncError: workoutSyncError } = useGuildTraining(userId, demo);
   const [loggingOut, setLoggingOut] = useState(false);
   const [scene, setScene] = useState<Scene>("base");
-  const [modal, setModal] = useState<"station" | "boss" | "stats" | "guild" | null>(null);
+  const [modal, setModal] = useState<"station" | "boss" | "stats" | null>(null);
   const [selected, setSelected] = useState<StationKey>("curls");
   const [repTarget, setRepTarget] = useState(5);
   const [runTarget, setRunTarget] = useState<number | "free">(RUN_BLOCK_SECONDS);
@@ -743,11 +740,10 @@ export default function App({ userId, username, initialSave, initialRevision = 0
     if (freeRunDeadline.current === null) return;
     freeRunDeadline.current = null;
     const gained = freeRunXp(sessionProgress.current);
-    recordWorkout("treadmill", sessionProgress.current, gained);
     if (gained > 0) setSave(current => trainingDay(current, demo ? demoDate : new Date()));
     setPaused(false);
     setReward({ xp: gained, leveled: levelFromXp(sessionStartXp.current + gained) > levelFromXp(sessionStartXp.current), inactive });
-  }, [setSave, demo, demoDate, recordWorkout]);
+  }, [setSave, demo, demoDate]);
 
   useEffect(() => {
     if (!exercise || !freeRun || reward || saveBlocked || loggingOut) return;
@@ -788,11 +784,10 @@ export default function App({ userId, username, initialSave, initialRevision = 0
     if (earned > 0) setSave(current => ({...current, [activeStatInfo.xpKey]:current[activeStatInfo.xpKey]+earned}));
     if (next === goal) {
       const gained = (timed ? goal / (RUN_BLOCK_SECONDS * 1000) : goal) * XP_PER_UNIT;
-      recordWorkout(selected, next, gained);
       setSave(current => trainingDay(current, demo ? demoDate : new Date()));
       setReward({ xp: gained, leveled: levelFromXp(sessionStartXp.current + gained) > levelFromXp(sessionStartXp.current) });
     }
-  }, [goal, timed, freeRun, completeFreeRun, activeStatInfo.xpKey, exercise, paused, reward, demo, demoDate, saveBlocked, loggingOut, audio, setSave, selected, recordWorkout]);
+  }, [goal, timed, freeRun, completeFreeRun, activeStatInfo.xpKey, exercise, paused, reward, demo, demoDate, saveBlocked, loggingOut, audio, setSave]);
 
   const progressHandler = useRef(addProgress);
   progressHandler.current = addProgress;
@@ -1117,7 +1112,7 @@ export default function App({ userId, username, initialSave, initialRevision = 0
           {[3, 5, 7].map(level => <button key={level} disabled={exercise || scene === "battle"} onClick={() => setSave(s => raiseDemoLevel(s, level))}>Reach Level {level}</button>)}
           {(["golem", "owl", "shellback"] as BossKey[]).map(boss => <button key={boss} disabled={exercise || scene === "battle"} onClick={() => setSave(s => unlockDemoBoss(s, boss))}>Unlock {BOSSES[boss].name} (LV {BOSS_REQUIREMENTS[boss].level} + prior clears)</button>)}
         </div>
-        <button onClick={()=>{clearTimers(); setCameraEnabled(false);setCameraReady(false);setExercise(false);setReward(null);setModal(null);setScene("base");setTransition(false);setMoving(false);setSave({...DEFAULT_SAVE,rewards:[]});setDemoDate(new Date()); clearDemoWorkouts();}}>Reset Demo</button>
+        <button onClick={()=>{clearTimers(); setCameraEnabled(false);setCameraReady(false);setExercise(false);setReward(null);setModal(null);setScene("base");setTransition(false);setMoving(false);setSave({...DEFAULT_SAVE,rewards:[]});setDemoDate(new Date());}}>Reset Demo</button>
         <button disabled={battle.busy || save.ultimateStacks >= MAX_ULTIMATE_STACKS} onClick={() => setSave(s => ({ ...s, ultimateStacks: Math.min(MAX_ULTIMATE_STACKS, s.ultimateStacks + 1) }))}>Add Ultimate Stack</button>
       </details>}
       {hud && (
@@ -1145,7 +1140,6 @@ export default function App({ userId, username, initialSave, initialRevision = 0
             >
               <PixelIcon type="settings" />
             </button>
-            {(userId || demo) && <button className="guild-report-button" onClick={() => setModal("guild")} aria-label="Guild Training Report">Guild</button>}
             <button
               className="logout-button"
               disabled={loggingOut || saveStatus !== "saved"}
@@ -1345,10 +1339,6 @@ export default function App({ userId, username, initialSave, initialRevision = 0
             </div>
           </Frame>
         </div>
-      )}
-
-      {modal === "guild" && (
-        <GuildTrainingReport demo={demo} sync={syncWorkouts} syncError={workoutSyncError} onClose={() => setModal(null)} />
       )}
 
       {modal === "stats" && (

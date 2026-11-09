@@ -3,7 +3,7 @@
     "file": "music/base.mp3",
     "source": "2-HOMESTEAD.wav",
     "author": "dancramp",
-    "duration": 132.0,
+    "duration": 132,
     "gain": 0.4218,
     "sha256": "7ffca99228eb542d1550ac19f21098244e8dd53b7093d8fc62d6b73bb7babbc2"
   },
@@ -11,7 +11,7 @@
     "file": "music/training.mp3",
     "source": "6-ON_AND_UP.wav",
     "author": "dancramp",
-    "duration": 48.0,
+    "duration": 48,
     "gain": 0.3819,
     "sha256": "83dc1bae8a1dab7343463e8c7e462f08d3810d0d8a06cbcf964b71d02d3df869"
   },
@@ -19,7 +19,7 @@
     "file": "music/battle.mp3",
     "source": "9-ENCOUNTER.wav",
     "author": "dancramp",
-    "duration": 48.0,
+    "duration": 48,
     "gain": 0.4157,
     "sha256": "a6a51e6df74e28b4895b0fae1b5d8d3961d187d9f5b037d5b94d36444b907edc"
   },
@@ -27,7 +27,7 @@
     "file": "music/dark-battle.mp3",
     "source": "12-DARKWOOD.wav",
     "author": "dancramp",
-    "duration": 32.0,
+    "duration": 32,
     "gain": 0.3378,
     "sha256": "0d67fa53fea2bf6f4ec84da96df4e16f3e7b9552d6b7a911f1e0e7c003770ca0"
   },
@@ -97,11 +97,12 @@
   },
   {
     "file": "effects/victory.wav",
-    "source": "jingles_NES00.ogg",
-    "author": "Kenney",
-    "duration": 1.758,
-    "gain": 0.6147,
-    "sha256": "1010c9b566d6c090ff03a4aaaf7439e26eb4cc4f20373800d0b7e6a9057b795d"
+    "source": "scripts/generate-battle-jingles.mjs",
+    "author": "FitQuest",
+    "description": "Original ascending C-major victory fanfare",
+    "duration": 2.1,
+    "gain": 1,
+    "sha256": "860fc4d08dbf3e12aac20c96b9db9de5e168a99527e623050a4f2645b0c32158"
   },
   {
     "file": "effects/level-up.wav",
@@ -121,10 +122,11 @@
   },
   {
     "file": "effects/defeat.wav",
-    "source": "jingles_NES08.ogg",
-    "author": "Kenney",
-    "duration": 0.621,
-    "gain": 0.6019,
-    "sha256": "ed99f241626d54754c8e73af1b2e9146e04a4a4a6ba353671dd9f1501c6c8109"
+    "source": "scripts/generate-battle-jingles.mjs",
+    "author": "FitQuest",
+    "description": "Original descending C-minor defeat cue",
+    "duration": 1.9,
+    "gain": 1,
+    "sha256": "ddc21bc42185922ab6d60c5913833ca2ee9a98a2a0c86721ddd926bddbfc0f73"
   }
 ]

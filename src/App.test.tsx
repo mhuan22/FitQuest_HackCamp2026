@@ -131,23 +131,17 @@ describe("game integration", () => {
     expect(host.querySelector('[data-testid="camera"]')).toBeNull();
   });
 
-  it("shows a simulated workout once in the local guild report", async () => {
-    // jsdom does not implement the native dialog methods.
-    HTMLDialogElement.prototype.showModal ??= function () { this.open = true; };
-    HTMLDialogElement.prototype.close ??= function () { this.open = false; };
+  it("preserves simulated workout XP locally after returning to the gym", async () => {
     await mount();
     await enterGym();
     await station(".dumbbell-station");
     for (let i = 0; i < 5; i++) await click("SIMULATE REP");
     await click("CONTINUE");
-    await click("Guild Training Report");
-    const report = host.querySelector("dialog");
-    expect(report?.textContent).toContain("Local demo");
-    expect(report?.textContent).toContain("50 / 500 guild XP");
-    expect(report?.textContent).toContain("Your top exercise by XP · Biceps Curls");
-    await click("Refresh");
-    expect(report?.textContent).toContain("50 / 500 guild XP");
+    expect(JSON.parse(localStorage.getItem("ironvale-demo")!).strengthXp).toBe(50);
     expect(mocks.save).not.toHaveBeenCalled();
+    await act(async () => root.unmount()); root = createRoot(host);
+    await mount();
+    expect(JSON.parse(localStorage.getItem("ironvale-demo")!).strengthXp).toBe(50);
   });
 
   it("keeps demo progression local and restores it after remounting", async () => {
@@ -217,6 +211,31 @@ describe("progression display consistency", () => {
 });
 
 describe("game sound integration", () => {
+  it("plays only the victory cue once when attacks defeat a boss", async () => {
+    await mount(); await click("BOSS GATE"); await advance(1000);
+    await click("FIGHT SLIME"); await advance(600);
+    for (let i = 0; i < 5 && !host.querySelector(".result-card"); i++) {
+      await click("ATTACK"); await advance(2500);
+    }
+    expect(host.querySelector(".result-card")?.textContent).toContain("VICTORY");
+    expect(mocks.audio.play.mock.calls.filter(([effect]) => effect === "victory")).toHaveLength(1);
+    expect(mocks.audio.play).not.toHaveBeenCalledWith("defeat");
+    await advance(3000);
+    expect(mocks.audio.play.mock.calls.filter(([effect]) => effect === "victory")).toHaveLength(1);
+  });
+  it("plays only the defeat cue once when the player runs out of HP", async () => {
+    const random = vi.spyOn(Math, "random").mockReturnValue(.99);
+    try {
+      await mount(); await click("BOSS GATE"); await advance(1000);
+      await click("FIGHT SLIME"); await advance(600);
+      for (let i = 0; i < 60 && !host.querySelector(".result-card"); i++) {
+        await click("GUARD"); await advance(2000);
+      }
+      expect(host.querySelector(".result-card")?.textContent).toContain("DEFEATED");
+      expect(mocks.audio.play.mock.calls.filter(([effect]) => effect === "defeat")).toHaveLength(1);
+      expect(mocks.audio.play).not.toHaveBeenCalledWith("victory");
+    } finally { random.mockRestore(); }
+  });
   it("persists mute and keeps the control available inside battles", async () => {
     await mount(); await click("Toggle sound");
     expect(JSON.parse(localStorage.getItem("ironvale-demo")!).sound).toBe(false);
